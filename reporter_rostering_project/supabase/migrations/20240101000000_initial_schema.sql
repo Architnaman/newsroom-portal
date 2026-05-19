@@ -1,14 +1,6 @@
--- ================================================
--- NEWSROOM OS - Complete Database Migration
--- ================================================
-
--- Enable UUID extension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
--- ================================================
--- TABLE: reporters
--- ================================================
 CREATE TABLE IF NOT EXISTS reporters (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   name text NOT NULL,
@@ -20,9 +12,6 @@ CREATE TABLE IF NOT EXISTS reporters (
   created_at timestamptz DEFAULT now()
 );
 
--- ================================================
--- TABLE: stories
--- ================================================
 CREATE TABLE IF NOT EXISTS stories (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   headline text NOT NULL,
@@ -43,9 +32,6 @@ CREATE TABLE IF NOT EXISTS stories (
   created_at timestamptz DEFAULT now()
 );
 
--- ================================================
--- TABLE: assignments
--- ================================================
 CREATE TABLE IF NOT EXISTS assignments (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   story_id uuid REFERENCES stories(id) ON DELETE CASCADE,
@@ -56,9 +42,6 @@ CREATE TABLE IF NOT EXISTS assignments (
   is_active boolean DEFAULT true
 );
 
--- ================================================
--- TABLE: availability
--- ================================================
 CREATE TABLE IF NOT EXISTS availability (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   reporter_id uuid REFERENCES reporters(id) ON DELETE CASCADE,
@@ -68,9 +51,6 @@ CREATE TABLE IF NOT EXISTS availability (
   UNIQUE(reporter_id, week_start_date)
 );
 
--- ================================================
--- TABLE: leave_requests
--- ================================================
 CREATE TABLE IF NOT EXISTS leave_requests (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   reporter_id uuid REFERENCES reporters(id) ON DELETE CASCADE,
@@ -84,9 +64,6 @@ CREATE TABLE IF NOT EXISTS leave_requests (
   created_at timestamptz DEFAULT now()
 );
 
--- ================================================
--- TABLE: profiles
--- ================================================
 CREATE TABLE IF NOT EXISTS profiles (
   id uuid PRIMARY KEY,
   reporter_id uuid REFERENCES reporters(id),
@@ -94,9 +71,6 @@ CREATE TABLE IF NOT EXISTS profiles (
   created_at timestamptz DEFAULT now()
 );
 
--- ================================================
--- TABLE: notification_log
--- ================================================
 CREATE TABLE IF NOT EXISTS notification_log (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   reporter_id uuid REFERENCES reporters(id),
@@ -105,9 +79,6 @@ CREATE TABLE IF NOT EXISTS notification_log (
   sent_at timestamptz DEFAULT now()
 );
 
--- ================================================
--- DISABLE RLS (local dev)
--- ================================================
 ALTER TABLE reporters DISABLE ROW LEVEL SECURITY;
 ALTER TABLE stories DISABLE ROW LEVEL SECURITY;
 ALTER TABLE assignments DISABLE ROW LEVEL SECURITY;
@@ -116,47 +87,20 @@ ALTER TABLE leave_requests DISABLE ROW LEVEL SECURITY;
 ALTER TABLE profiles DISABLE ROW LEVEL SECURITY;
 ALTER TABLE notification_log DISABLE ROW LEVEL SECURITY;
 
--- ================================================
--- STORAGE BUCKET
--- ================================================
-INSERT INTO storage.buckets (id, name, public)
-VALUES ('story-files', 'story-files', true)
-ON CONFLICT (id) DO NOTHING;
+INSERT INTO storage.buckets (id, name, public) VALUES ('story-files', 'story-files', true) ON CONFLICT (id) DO NOTHING;
 
-DO \$\$
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'story_files_upload' AND tablename = 'objects') THEN
-    CREATE POLICY "story_files_upload" ON storage.objects
-    FOR INSERT TO authenticated
-    WITH CHECK (bucket_id = 'story-files');
-  END IF;
-
-  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'story_files_read' AND tablename = 'objects') THEN
-    CREATE POLICY "story_files_read" ON storage.objects
-    FOR SELECT USING (bucket_id = 'story-files');
-  END IF;
-
-  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'story_files_delete' AND tablename = 'objects') THEN
-    CREATE POLICY "story_files_delete" ON storage.objects
-    FOR DELETE TO authenticated
-    USING (bucket_id = 'story-files');
-  END IF;
-END \$\$;
-
--- ================================================
--- AUTO COMPLEXITY TRIGGER
--- ================================================
 CREATE OR REPLACE FUNCTION auto_update_complexity()
-RETURNS trigger AS \$\$
+RETURNS trigger AS
+'
 BEGIN
-  IF NEW.status IN ('filed', 'published') AND OLD.status != NEW.status THEN
+  IF NEW.status IN (''filed'', ''published'') AND OLD.status != NEW.status THEN
     UPDATE reporters r
     SET complexity_level = COALESCE((
       SELECT ROUND(AVG(s.complexity))
       FROM assignments a
       JOIN stories s ON s.id = a.story_id
       WHERE a.reporter_id = r.id
-      AND s.status IN ('filed', 'published')
+      AND s.status IN (''filed'', ''published'')
     ), 3)
     WHERE r.id IN (
       SELECT reporter_id FROM assignments
@@ -164,7 +108,8 @@ BEGIN
     );
   END IF;
   RETURN NEW;
-END \$\$ LANGUAGE plpgsql;
+END
+' LANGUAGE plpgsql;
 
 DROP TRIGGER IF EXISTS trigger_update_complexity ON stories;
 CREATE TRIGGER trigger_update_complexity
