@@ -123,22 +123,31 @@ INSERT INTO storage.buckets (id, name, public)
 VALUES ('story-files', 'story-files', true)
 ON CONFLICT (id) DO NOTHING;
 
-CREATE POLICY IF NOT EXISTS "story_files_upload" ON storage.objects
-FOR INSERT TO authenticated
-WITH CHECK (bucket_id = 'story-files');
+DO \$\$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'story_files_upload' AND tablename = 'objects') THEN
+    CREATE POLICY "story_files_upload" ON storage.objects
+    FOR INSERT TO authenticated
+    WITH CHECK (bucket_id = 'story-files');
+  END IF;
 
-CREATE POLICY IF NOT EXISTS "story_files_read" ON storage.objects
-FOR SELECT USING (bucket_id = 'story-files');
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'story_files_read' AND tablename = 'objects') THEN
+    CREATE POLICY "story_files_read" ON storage.objects
+    FOR SELECT USING (bucket_id = 'story-files');
+  END IF;
 
-CREATE POLICY IF NOT EXISTS "story_files_delete" ON storage.objects
-FOR DELETE TO authenticated
-USING (bucket_id = 'story-files');
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'story_files_delete' AND tablename = 'objects') THEN
+    CREATE POLICY "story_files_delete" ON storage.objects
+    FOR DELETE TO authenticated
+    USING (bucket_id = 'story-files');
+  END IF;
+END \$\$;
 
 -- ================================================
 -- AUTO COMPLEXITY TRIGGER
 -- ================================================
 CREATE OR REPLACE FUNCTION auto_update_complexity()
-RETURNS trigger AS Initial commit - Newsroom OS Portal
+RETURNS trigger AS \$\$
 BEGIN
   IF NEW.status IN ('filed', 'published') AND OLD.status != NEW.status THEN
     UPDATE reporters r
@@ -155,8 +164,7 @@ BEGIN
     );
   END IF;
   RETURN NEW;
-END;
-Initial commit - Newsroom OS Portal LANGUAGE plpgsql;
+END \$\$ LANGUAGE plpgsql;
 
 DROP TRIGGER IF EXISTS trigger_update_complexity ON stories;
 CREATE TRIGGER trigger_update_complexity
