@@ -1,0 +1,6 @@
+﻿.env
+supabase/functions/.env
+supabase/functions/.env.local
+supabase/.branches
+supabase/docker
+supabase/snippets

@@ -1,0 +1,21 @@
+﻿# Ignore everything
+*
+
+# Except these two folders
+!reporter_rostering_project/
+!newsroom-ui/
+!README.md
+!.gitignore
+
+# Inside reporter_rostering_project - ignore sensitive files
+reporter_rostering_project/supabase/.branches/
+reporter_rostering_project/supabase/docker/
+reporter_rostering_project/.env
+reporter_rostering_project/supabase/functions/.env
+reporter_rostering_project/supabase/functions/.env.local
+
+# Inside newsroom-ui - ignore node_modules and build
+newsroom-ui/node_modules/
+newsroom-ui/dist/
+newsroom-ui/.env
+newsroom-ui/.env.local
