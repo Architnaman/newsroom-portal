@@ -1,0 +1,5 @@
+-- Disable RLS on availability temporarily for testing
+ALTER TABLE availability DISABLE ROW LEVEL SECURITY;
+ALTER TABLE reporters DISABLE ROW LEVEL SECURITY;
+ALTER TABLE assignments DISABLE ROW LEVEL SECURITY;
+ALTER TABLE leave_requests DISABLE ROW LEVEL SECURITY;

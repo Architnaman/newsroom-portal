@@ -1,0 +1,1 @@
+SELECT name, email, status FROM reporters ORDER BY name;

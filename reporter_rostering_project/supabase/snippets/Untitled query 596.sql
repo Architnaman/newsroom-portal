@@ -1,0 +1,1 @@
+SELECT id, headline, status FROM stories WHERE headline = 'ELECTION';
