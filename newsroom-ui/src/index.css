@@ -1,9 +1,11 @@
-@import "tailwindcss";
-
-body {
+* {
   margin: 0;
   padding: 0;
-  background: black;
+  box-sizing: border-box;
+}
+
+body {
+  background: #0a0a0f;
   color: white;
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: 'DM Mono', 'Courier New', monospace;
 }
