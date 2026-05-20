@@ -6,6 +6,7 @@ import KanbanBoard from './pages/KanbanBoard'
 import ReporterQueue from './pages/ReporterQueue'
 import AvailabilityPage from './pages/AvailabilityPage'
 import ReporterRoster from './pages/ReporterRoster'
+import Chatbot from './components/Chatbot'
 
 function ProtectedRoute({ children, requiredRole }: { children: React.ReactNode, requiredRole?: string }) {
   const { user, role, loading } = useAuth()
@@ -26,15 +27,18 @@ function ProtectedRoute({ children, requiredRole }: { children: React.ReactNode,
 function AppRoutes() {
   const { user, role } = useAuth()
   return (
-    <Routes>
-      <Route path="/login" element={user ? <Navigate to={role === 'editor' ? '/dashboard' : '/queue'} replace /> : <Login />} />
-      <Route path="/dashboard" element={<ProtectedRoute requiredRole="editor"><EditorDashboard /></ProtectedRoute>} />
-      <Route path="/kanban" element={<ProtectedRoute requiredRole="editor"><KanbanBoard /></ProtectedRoute>} />
-      <Route path="/roster" element={<ProtectedRoute requiredRole="editor"><ReporterRoster /></ProtectedRoute>} />
-      <Route path="/queue" element={<ProtectedRoute requiredRole="reporter"><ReporterQueue /></ProtectedRoute>} />
-      <Route path="/availability" element={<ProtectedRoute requiredRole="reporter"><AvailabilityPage /></ProtectedRoute>} />
-      <Route path="*" element={<Navigate to="/login" replace />} />
-    </Routes>
+    <>
+      <Routes>
+        <Route path="/login" element={user ? <Navigate to={role === 'editor' ? '/dashboard' : '/queue'} replace /> : <Login />} />
+        <Route path="/dashboard" element={<ProtectedRoute requiredRole="editor"><EditorDashboard /></ProtectedRoute>} />
+        <Route path="/kanban" element={<ProtectedRoute requiredRole="editor"><KanbanBoard /></ProtectedRoute>} />
+        <Route path="/roster" element={<ProtectedRoute requiredRole="editor"><ReporterRoster /></ProtectedRoute>} />
+        <Route path="/queue" element={<ProtectedRoute requiredRole="reporter"><ReporterQueue /></ProtectedRoute>} />
+        <Route path="/availability" element={<ProtectedRoute requiredRole="reporter"><AvailabilityPage /></ProtectedRoute>} />
+        <Route path="*" element={<Navigate to="/login" replace />} />
+      </Routes>
+      {user && <Chatbot />}
+    </>
   )
 }
 

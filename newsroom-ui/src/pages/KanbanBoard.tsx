@@ -41,12 +41,20 @@ export default function KanbanBoard() {
 
   useEffect(() => { load() }, [])
 
+  // Realtime subscription
   useEffect(() => {
     const channel = supabase.channel("kanban")
       .on("postgres_changes", { event: "*", schema: "public", table: "stories" }, load)
       .on("postgres_changes", { event: "*", schema: "public", table: "assignments" }, load)
       .subscribe()
     return () => { supabase.removeChannel(channel) }
+  }, [])
+
+  // Chatbot refresh listener
+  useEffect(() => {
+    const handler = () => load()
+    window.addEventListener("newsroom-refresh", handler)
+    return () => window.removeEventListener("newsroom-refresh", handler)
   }, [])
 
   async function publishStory(storyId, feedbackText) {
@@ -159,12 +167,10 @@ export default function KanbanBoard() {
 
       {assignStory && <AssignModal story={assignStory} onClose={() => setAssignStory(null)} onAssigned={load} />}
 
-      {/* View File Modal */}
       {viewFile && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.9)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}
           onClick={e => { if (e.target === e.currentTarget) setViewFile(null) }}>
           <div style={{ background: "#0d0d14", border: "1px solid rgba(136,136,255,0.3)", borderRadius: "8px", width: "100%", maxWidth: "520px", margin: "24px", fontFamily: '"DM Mono","Courier New",monospace', overflow: "hidden", maxHeight: "90vh", overflowY: "auto" }}>
-
             <div style={{ padding: "20px 24px", borderBottom: "1px solid rgba(255,255,255,0.06)", display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
               <div>
                 <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "6px" }}>
@@ -208,26 +214,18 @@ export default function KanbanBoard() {
 
             <div style={{ padding: "20px 24px", display: "flex", flexDirection: "column", gap: "10px" }}>
               <p style={{ color: "#555", fontSize: "11px", letterSpacing: "1px", margin: "0 0 4px" }}>EDITOR ACTIONS</p>
-
-              <button
-                onClick={() => publishStory(viewFile.id, null)}
-                disabled={publishing === viewFile.id}
+              <button onClick={() => publishStory(viewFile.id, null)} disabled={publishing === viewFile.id}
                 style={{ width: "100%", padding: "13px", background: "rgba(100,200,150,0.15)", border: "1px solid rgba(100,200,150,0.4)", borderRadius: "6px", color: "#64c896", fontSize: "12px", letterSpacing: "1px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit", opacity: publishing === viewFile.id ? 0.6 : 1 }}>
                 {publishing === viewFile.id ? "PUBLISHING..." : "APPROVE AND PUBLISH"}
               </button>
-
-              <button
-                onClick={() => { setFeedbackModal(viewFile); setViewFile(null); setFeedback("") }}
+              <button onClick={() => { setFeedbackModal(viewFile); setViewFile(null); setFeedback("") }}
                 style={{ width: "100%", padding: "13px", background: "rgba(255,180,0,0.08)", border: "1px solid rgba(255,180,0,0.25)", borderRadius: "6px", color: "#ffb400", fontSize: "12px", letterSpacing: "1px", cursor: "pointer", fontFamily: "inherit" }}>
                 💬 PUBLISH WITH FEEDBACK
               </button>
-
-              <button
-                onClick={() => { setReassignModal(viewFile); setViewFile(null) }}
+              <button onClick={() => { setReassignModal(viewFile); setViewFile(null) }}
                 style={{ width: "100%", padding: "13px", background: "rgba(255,136,0,0.1)", border: "1px solid rgba(255,136,0,0.3)", borderRadius: "6px", color: "#ff8800", fontSize: "12px", letterSpacing: "1px", cursor: "pointer", fontFamily: "inherit" }}>
                 REASSIGN WITH REASON
               </button>
-
               <button onClick={() => setViewFile(null)}
                 style={{ width: "100%", padding: "11px", background: "transparent", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "6px", color: "#555", fontSize: "12px", cursor: "pointer", fontFamily: "inherit" }}>
                 CLOSE
@@ -237,51 +235,37 @@ export default function KanbanBoard() {
         </div>
       )}
 
-      {/* Feedback Modal - separate from view file */}
       {feedbackModal && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.9)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}
           onClick={e => { if (e.target === e.currentTarget) { setFeedbackModal(null); setFeedback("") } }}>
           <div style={{ background: "#0d0d14", border: "1px solid rgba(255,180,0,0.3)", borderRadius: "8px", width: "100%", maxWidth: "480px", margin: "24px", padding: "24px", fontFamily: '"DM Mono","Courier New",monospace' }}>
-
             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "6px" }}>
               <h2 style={{ color: "#fff", margin: 0, fontSize: "16px" }}>Publish with Feedback</h2>
               <button onClick={() => { setFeedbackModal(null); setFeedback("") }} style={{ background: "none", border: "none", color: "#555", fontSize: "20px", cursor: "pointer" }}>x</button>
             </div>
-
             <p style={{ color: "#555", fontSize: "12px", margin: "0 0 20px" }}>
               Story: <span style={{ color: "#ddd" }}>{feedbackModal.headline}</span>
             </p>
-
             <div style={{ padding: "10px 14px", background: "rgba(255,180,0,0.06)", border: "1px solid rgba(255,180,0,0.15)", borderRadius: "5px", marginBottom: "20px" }}>
               <p style={{ color: "#ffb400", fontSize: "11px", margin: 0 }}>
-                Write your feedback for <span style={{ color: "#fff" }}>{assignMap[feedbackModal.id]}</span>. This is optional but will be visible to the reporter after publishing.
+                Write your feedback for <span style={{ color: "#fff" }}>{assignMap[feedbackModal.id]}</span>. Optional — visible to reporter after publishing.
               </p>
             </div>
-
             <div style={{ marginBottom: "20px" }}>
               <label style={{ color: "#888", fontSize: "11px", letterSpacing: "1px", display: "block", marginBottom: "8px" }}>
                 YOUR FEEDBACK <span style={{ color: "#555" }}>(optional)</span>
               </label>
-              <textarea
-                value={feedback}
-                onChange={e => setFeedback(e.target.value)}
-                rows={5}
-                placeholder="Great work! The lead paragraph was compelling. The source quotes added credibility. Next time, consider adding more data points in the analysis section..."
-                style={{ width: "100%", padding: "12px", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,180,0,0.2)", borderRadius: "6px", color: "#fff", fontSize: "13px", outline: "none", boxSizing: "border-box", fontFamily: "inherit", resize: "none", lineHeight: 1.6 }}
-              />
-              <p style={{ color: "#444", fontSize: "10px", margin: "6px 0 0", textAlign: "right" }}>
-                {feedback.length} characters
-              </p>
+              <textarea value={feedback} onChange={e => setFeedback(e.target.value)} rows={5}
+                placeholder="Great work! The lead paragraph was compelling..."
+                style={{ width: "100%", padding: "12px", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,180,0,0.2)", borderRadius: "6px", color: "#fff", fontSize: "13px", outline: "none", boxSizing: "border-box", fontFamily: "inherit", resize: "none", lineHeight: 1.6 }} />
+              <p style={{ color: "#444", fontSize: "10px", margin: "6px 0 0", textAlign: "right" }}>{feedback.length} characters</p>
             </div>
-
             <div style={{ display: "flex", gap: "8px" }}>
               <button onClick={() => { setFeedbackModal(null); setFeedback("") }}
                 style={{ flex: 1, padding: "11px", background: "transparent", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "6px", color: "#666", fontSize: "12px", cursor: "pointer", fontFamily: "inherit" }}>
                 CANCEL
               </button>
-              <button
-                onClick={() => publishStory(feedbackModal.id, feedback)}
-                disabled={publishing === feedbackModal.id}
+              <button onClick={() => publishStory(feedbackModal.id, feedback)} disabled={publishing === feedbackModal.id}
                 style={{ flex: 2, padding: "11px", background: "rgba(100,200,150,0.15)", border: "1px solid rgba(100,200,150,0.4)", borderRadius: "6px", color: "#64c896", fontSize: "12px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit", opacity: publishing === feedbackModal.id ? 0.6 : 1 }}>
                 {publishing === feedbackModal.id ? "PUBLISHING..." : feedback.trim() ? "PUBLISH WITH FEEDBACK" : "PUBLISH WITHOUT FEEDBACK"}
               </button>
@@ -290,7 +274,6 @@ export default function KanbanBoard() {
         </div>
       )}
 
-      {/* Reassign Modal */}
       {reassignModal && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.9)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}
           onClick={e => { if (e.target === e.currentTarget) { setReassignModal(null); setReassignReason("") } }}>

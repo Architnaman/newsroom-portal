@@ -38,11 +38,9 @@ export default function EditorDashboard() {
 
   async function load() {
     setLoading(true)
-
     const weekStart = getCurrentWeekStart()
     const weekEnd = getCurrentWeekEnd()
 
-    // Only fetch stories with deadlines in current week
     const { data: storiesData } = await supabase
       .from('stories').select('*')
       .gte('deadline', weekStart)
@@ -88,12 +86,20 @@ export default function EditorDashboard() {
 
   useEffect(() => { load() }, [])
 
+  // Realtime subscription
   useEffect(() => {
     const channel = supabase.channel('dashboard')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'stories' }, load)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'leave_requests' }, load)
       .subscribe()
     return () => { supabase.removeChannel(channel) }
+  }, [])
+
+  // Chatbot refresh listener
+  useEffect(() => {
+    const handler = () => load()
+    window.addEventListener('newsroom-refresh', handler)
+    return () => window.removeEventListener('newsroom-refresh', handler)
   }, [])
 
   async function createStory() {
@@ -110,22 +116,16 @@ export default function EditorDashboard() {
       const leaveDate = new Date(leave.leave_date + 'T00:00:00Z')
       const days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
       const dayName = days[leaveDate.getUTCDay()]
-
       const { data: avail } = await supabase
-        .from('availability')
-        .select('*')
+        .from('availability').select('*')
         .eq('reporter_id', leave.reporter_id)
         .eq('week_start_date', getCurrentWeekStart())
         .maybeSingle()
-
       if (avail) {
         const updatedDays = avail.available_days.filter((d: string) => d !== dayName)
-        await supabase.from('availability')
-          .update({ available_days: updatedDays })
-          .eq('id', avail.id)
+        await supabase.from('availability').update({ available_days: updatedDays }).eq('id', avail.id)
       }
     }
-
     await supabase.from('leave_requests')
       .update({ status: 'acknowledged', acknowledged_at: new Date().toISOString() })
       .eq('id', leaveId)
@@ -163,14 +163,12 @@ export default function EditorDashboard() {
       <Navbar />
       <div style={{ padding: '32px 24px', maxWidth: '1200px', margin: '0 auto' }}>
 
-        {/* Week indicator */}
         <div style={{ marginBottom: '24px', padding: '10px 16px', background: 'rgba(255,180,0,0.06)', border: '1px solid rgba(255,180,0,0.15)', borderRadius: '6px', display: 'inline-block' }}>
           <span style={{ color: '#ffb400', fontSize: '11px', letterSpacing: '1px' }}>
             📅 CURRENT WEEK: {weekStart} → {weekEnd}
           </span>
         </div>
 
-        {/* Stats */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '16px', marginBottom: '32px' }}>
           {stats.map(s => (
             <div key={s.label} style={{ padding: '20px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.07)', background: 'rgba(255,255,255,0.02)' }}>
@@ -181,8 +179,6 @@ export default function EditorDashboard() {
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: '24px' }}>
-
-          {/* Stories */}
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
               <h2 style={{ color: '#fff', margin: 0, fontSize: '14px', letterSpacing: '1px' }}>THIS WEEK'S STORIES</h2>
@@ -241,7 +237,6 @@ export default function EditorDashboard() {
             )}
           </div>
 
-          {/* Leave Alerts */}
           <div>
             <h2 style={{ color: '#fff', margin: '0 0 16px', fontSize: '14px', letterSpacing: '1px' }}>LEAVE ALERTS</h2>
             {alerts.length === 0 ? (
@@ -286,7 +281,6 @@ export default function EditorDashboard() {
         </div>
       </div>
 
-      {/* Create Story Modal */}
       {showCreate && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
           onClick={e => { if (e.target === e.currentTarget) setShowCreate(false) }}>
@@ -355,7 +349,6 @@ export default function EditorDashboard() {
         </div>
       )}
 
-      {/* Reject Modal */}
       {rejectModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
           onClick={e => { if (e.target === e.currentTarget) { setRejectModal(null); setRejectReason('') } }}>

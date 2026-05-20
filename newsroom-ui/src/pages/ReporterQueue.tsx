@@ -25,6 +25,13 @@ export default function ReporterQueue() {
 
   useEffect(() => { load() }, [reporterId])
 
+  // Chatbot refresh listener
+  useEffect(() => {
+    const handler = () => load()
+    window.addEventListener("newsroom-refresh", handler)
+    return () => window.removeEventListener("newsroom-refresh", handler)
+  }, [reporterId])
+
   async function startWorking(story) {
     setUpdating(story.id)
     await supabase.from("stories").update({ status: "in_progress" }).eq("id", story.id)
