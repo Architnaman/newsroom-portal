@@ -189,6 +189,36 @@ export default function Chatbot() {
     }
   }
 
+  // MODIFIED: More robust JSON parsing to handle malformed AI responses
+  function extractAndParseJSON(text: string) {
+    // Clean markdown code blocks
+    let cleaned = text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim()
+
+    // Fix common AI JSON mistakes
+    // 1. Fix double closing braces before message: }}, "message" -> }, "message"
+    cleaned = cleaned.replace(/\}\}\s*,\s*"message"/g, '}, "message"')
+    // 2. Fix trailing commas before closing braces
+    cleaned = cleaned.replace(/,\s*\}/g, '}')
+    cleaned = cleaned.replace(/,\s*\]/g, ']')
+    // 3. Fix extra opening braces
+    cleaned = cleaned.replace(/^\{\{/, '{')
+
+    try {
+      return JSON.parse(cleaned)
+    } catch (e) {
+      // Try to find JSON object in text using regex
+      const jsonMatch = cleaned.match(/\{[\s\S]*\}/)
+      if (jsonMatch) {
+        try {
+          return JSON.parse(jsonMatch[0])
+        } catch (e2) {
+          return null
+        }
+      }
+      return null
+    }
+  }
+
   async function sendMessage() {
     if (!input.trim() || loading) return
     const userMsg = input.trim()
@@ -200,6 +230,7 @@ export default function Chatbot() {
       const dbContext = await getDBContext()
       const today = new Date().toISOString().split("T")[0]
 
+      // MODIFIED: Stricter system prompts to prevent malformed JSON
       const systemPrompt = role === "editor"
         ? `You are an AI assistant for a Newsroom OS portal helping an EDITOR.
 Today is ${today}.
@@ -212,21 +243,20 @@ IMPORTANT - Before suggesting reporters for assignment:
 - Still ALLOW editor to override-assign with a valid reason
 
 You can perform these actions by returning JSON:
-1. Create story: {"action": {"type": "create_story", "headline": "...", "category": "Politics/Economy/Tech/Science/Crime/Local/Sports/Entertainment/Business", "urgency": "breaking/high/normal/low", "complexity": 1-5, "priority": 1-5, "deadline": "YYYY-MM-DD", "description": "..."}}
-2. Normal assign: {"action": {"type": "assign_story", "story_id": "...", "reporter_id": "..."}}
-3. Override assign (reporter unavailable): {"action": {"type": "override_assign_story", "story_id": "...", "reporter_id": "...", "reason": "editor reason"}}
-4. Approve leave: {"action": {"type": "approve_leave", "leave_id": "..."}}
-5. Reject leave: {"action": {"type": "reject_leave", "leave_id": "...", "reason": "..."}}
-6. Publish story: {"action": {"type": "publish_story", "story_id": "...", "feedback": "optional"}}
+1. Create story: {"action": {"type": "create_story", "headline": "...", "category": "Politics/Economy/Tech/Science/Crime/Local/Sports/Entertainment/Business", "urgency": "breaking/high/normal/low", "complexity": 1-5, "priority": 1-5, "deadline": "YYYY-MM-DD", "description": "..."}, "message": "..."}
+2. Normal assign: {"action": {"type": "assign_story", "story_id": "...", "reporter_id": "..."}, "message": "..."}
+3. Override assign: {"action": {"type": "override_assign_story", "story_id": "...", "reporter_id": "...", "reason": "..."}, "message": "..."}
+4. Approve leave: {"action": {"type": "approve_leave", "leave_id": "..."}, "message": "..."}
+5. Reject leave: {"action": {"type": "reject_leave", "leave_id": "...", "reason": "..."}, "message": "..."}
+6. Publish story: {"action": {"type": "publish_story", "story_id": "...", "feedback": "optional"}, "message": "..."}
 
-RULES:
-- Always check reporterAvailability before suggesting reporters
-- If reporter is on leave or unavailable, clearly mention it and ask for override reason
-- If editor wants to assign to unavailable reporter, ask for reason then use override_assign_story
-- Deadline must be within current week (${today} to Sunday)
-- When executing return ONLY valid JSON: {"action": {...}, "message": "..."}
-- When asking questions return ONLY plain text
-- Never wrap JSON in markdown code blocks
+CRITICAL JSON RULES:
+- Return ONLY a single valid JSON object with exactly two keys: "action" and "message"
+- The format MUST be: {"action": {...}, "message": "..."}
+- NEVER use double closing braces like }}
+- NEVER add text before or after the JSON
+- NEVER wrap in markdown code blocks
+- When asking questions return ONLY plain text with no JSON
 - Be friendly and conversational`
         : `You are an AI assistant for a Newsroom OS portal helping a REPORTER.
 Today is ${today}.
@@ -235,22 +265,22 @@ Database context: ${JSON.stringify(dbContext)}
 
 IMPORTANT:
 - Check overrideAssignments in context
-- If there are pending override assignments (is_override=true, override_status=pending), immediately inform the reporter and ask them to accept or reject with a reason
-- Override accept/reject is ONLY for assignments where is_override = true
+- If there are pending override assignments, immediately inform the reporter and ask them to accept or reject with a reason
 
 You can perform these actions by returning JSON:
-1. Start working: {"action": {"type": "start_working", "story_id": "..."}}
-2. File leave: {"action": {"type": "file_leave", "leave_date": "YYYY-MM-DD", "leave_type": "planned/sick/emergency", "notes": "..."}}
-3. Update availability: {"action": {"type": "update_availability", "days": ["Mon","Tue","Wed","Thu","Fri"]}}
-4. Accept override: {"action": {"type": "accept_override", "assignment_id": "...", "response": "reason for accepting"}}
-5. Reject override: {"action": {"type": "reject_override", "assignment_id": "...", "story_id": "...", "response": "reason for rejecting"}}
+1. Start working: {"action": {"type": "start_working", "story_id": "..."}, "message": "..."}
+2. File leave: {"action": {"type": "file_leave", "leave_date": "YYYY-MM-DD", "leave_type": "planned/sick/emergency", "notes": "..."}, "message": "..."}
+3. Update availability: {"action": {"type": "update_availability", "days": ["Mon","Tue","Wed","Thu","Fri"]}, "message": "..."}
+4. Accept override: {"action": {"type": "accept_override", "assignment_id": "...", "response": "..."}, "message": "..."}
+5. Reject override: {"action": {"type": "reject_override", "assignment_id": "...", "story_id": "...", "response": "..."}, "message": "..."}
 
-RULES:
-- If reporter has pending override assignments proactively tell them
-- If fields are missing ask for them one by one
-- When executing return ONLY valid JSON: {"action": {...}, "message": "..."}
-- When asking questions return ONLY plain text
-- Never wrap JSON in markdown code blocks
+CRITICAL JSON RULES:
+- Return ONLY a single valid JSON object with exactly two keys: "action" and "message"
+- The format MUST be: {"action": {...}, "message": "..."}
+- NEVER use double closing braces like }}
+- NEVER add text before or after the JSON
+- NEVER wrap in markdown code blocks
+- When asking questions return ONLY plain text with no JSON
 - Be friendly and conversational`
 
       const conversationHistory = messages.slice(-6).map(m => ({
@@ -273,7 +303,7 @@ RULES:
               { role: "system", content: systemPrompt },
               ...conversationHistory
             ],
-            temperature: 0.3,
+            temperature: 0.1, // MODIFIED: Lower temperature for more consistent JSON output
             max_tokens: 1000
           })
         }
@@ -291,15 +321,13 @@ RULES:
       const rawText = data.choices?.[0]?.message?.content || "Sorry I could not process that."
       let assistantMessage = rawText
 
-      try {
-        const cleanText = rawText.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim()
-        const parsed = JSON.parse(cleanText)
-        if (parsed.action) {
-          const actionResult = await executeAction(parsed.action)
-          assistantMessage = (parsed.message || "") + "\n\n" + actionResult
-          window.dispatchEvent(new Event("newsroom-refresh"))
-        }
-      } catch (e) {
+      // MODIFIED: Use robust JSON parser instead of direct JSON.parse
+      const parsed = extractAndParseJSON(rawText)
+      if (parsed && parsed.action) {
+        const actionResult = await executeAction(parsed.action)
+        assistantMessage = (parsed.message || "Done!") + "\n\n" + actionResult
+        window.dispatchEvent(new Event("newsroom-refresh"))
+      } else {
         assistantMessage = rawText
       }
 
