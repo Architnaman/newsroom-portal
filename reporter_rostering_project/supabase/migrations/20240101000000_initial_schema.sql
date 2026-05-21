@@ -1,6 +1,9 @@
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
+-- ================================================
+-- TABLE: reporters
+-- ================================================
 CREATE TABLE IF NOT EXISTS reporters (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   name text NOT NULL,
@@ -8,10 +11,13 @@ CREATE TABLE IF NOT EXISTS reporters (
   beats text[] DEFAULT '{}',
   status text DEFAULT 'active' CHECK (status IN ('active', 'inactive')),
   max_stories_per_week integer DEFAULT 4,
-  complexity_level integer DEFAULT 3,
+  complexity_level integer DEFAULT 3, -- ADDED: auto-calculated from filed/published stories
   created_at timestamptz DEFAULT now()
 );
 
+-- ================================================
+-- TABLE: stories
+-- ================================================
 CREATE TABLE IF NOT EXISTS stories (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   headline text NOT NULL,
@@ -22,16 +28,19 @@ CREATE TABLE IF NOT EXISTS stories (
   priority integer DEFAULT 3 CHECK (priority BETWEEN 1 AND 5),
   status text DEFAULT 'unassigned' CHECK (status IN ('unassigned', 'assigned', 'in_progress', 'filed', 'published')),
   deadline date NOT NULL,
-  filed_file_url text,
-  filed_file_name text,
-  filed_at timestamptz,
-  published_at timestamptz,
-  reassign_reason text,
-  editor_feedback text,
-  feedback_at timestamptz,
+  filed_file_url text,       -- ADDED: Word document URL uploaded by reporter
+  filed_file_name text,      -- ADDED: Word document filename
+  filed_at timestamptz,      -- ADDED: When reporter filed the report
+  published_at timestamptz,  -- ADDED: When editor published the story
+  reassign_reason text,      -- ADDED: Editor reason when reassigning story back
+  editor_feedback text,      -- ADDED: Optional feedback from editor on publish
+  feedback_at timestamptz,   -- ADDED: When editor gave feedback
   created_at timestamptz DEFAULT now()
 );
 
+-- ================================================
+-- TABLE: assignments
+-- ================================================
 CREATE TABLE IF NOT EXISTS assignments (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   story_id uuid REFERENCES stories(id) ON DELETE CASCADE,
@@ -39,9 +48,19 @@ CREATE TABLE IF NOT EXISTS assignments (
   assigned_by uuid,
   assigned_at timestamptz DEFAULT now(),
   reassigned_from uuid,
-  is_active boolean DEFAULT true
+  is_active boolean DEFAULT true,
+  -- ADDED: Override assignment support (when reporter is unavailable)
+  is_override boolean DEFAULT false,             -- ADDED: true if assigned despite unavailability
+  override_reason text,                          -- ADDED: Editor reason for override
+  override_status text DEFAULT 'pending' CHECK (override_status IN ('pending', 'accepted', 'rejected')), -- ADDED: Reporter response status
+  override_response text,                        -- ADDED: Reporter reason for accepting/rejecting
+  override_responded_at timestamptz              -- ADDED: When reporter responded
+  -- END ADDED
 );
 
+-- ================================================
+-- TABLE: availability
+-- ================================================
 CREATE TABLE IF NOT EXISTS availability (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   reporter_id uuid REFERENCES reporters(id) ON DELETE CASCADE,
@@ -51,6 +70,9 @@ CREATE TABLE IF NOT EXISTS availability (
   UNIQUE(reporter_id, week_start_date)
 );
 
+-- ================================================
+-- TABLE: leave_requests
+-- ================================================
 CREATE TABLE IF NOT EXISTS leave_requests (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   reporter_id uuid REFERENCES reporters(id) ON DELETE CASCADE,
@@ -59,11 +81,14 @@ CREATE TABLE IF NOT EXISTS leave_requests (
   is_immediate boolean DEFAULT false,
   notes text,
   status text DEFAULT 'pending' CHECK (status IN ('pending', 'acknowledged', 'rejected')),
-  reject_reason text,
+  reject_reason text,        -- ADDED: Editor reason when rejecting leave
   acknowledged_at timestamptz,
   created_at timestamptz DEFAULT now()
 );
 
+-- ================================================
+-- TABLE: profiles
+-- ================================================
 CREATE TABLE IF NOT EXISTS profiles (
   id uuid PRIMARY KEY,
   reporter_id uuid REFERENCES reporters(id),
@@ -71,6 +96,9 @@ CREATE TABLE IF NOT EXISTS profiles (
   created_at timestamptz DEFAULT now()
 );
 
+-- ================================================
+-- TABLE: notification_log
+-- ================================================
 CREATE TABLE IF NOT EXISTS notification_log (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   reporter_id uuid REFERENCES reporters(id),
@@ -79,6 +107,9 @@ CREATE TABLE IF NOT EXISTS notification_log (
   sent_at timestamptz DEFAULT now()
 );
 
+-- ================================================
+-- DISABLE RLS (local dev)
+-- ================================================
 ALTER TABLE reporters DISABLE ROW LEVEL SECURITY;
 ALTER TABLE stories DISABLE ROW LEVEL SECURITY;
 ALTER TABLE assignments DISABLE ROW LEVEL SECURITY;
@@ -87,8 +118,20 @@ ALTER TABLE leave_requests DISABLE ROW LEVEL SECURITY;
 ALTER TABLE profiles DISABLE ROW LEVEL SECURITY;
 ALTER TABLE notification_log DISABLE ROW LEVEL SECURITY;
 
-INSERT INTO storage.buckets (id, name, public) VALUES ('story-files', 'story-files', true) ON CONFLICT (id) DO NOTHING;
+-- ================================================
+-- STORAGE BUCKET
+-- ADDED: For storing reporter Word document uploads
+-- ================================================
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('story-files', 'story-files', true)
+ON CONFLICT (id) DO NOTHING;
 
+-- ================================================
+-- AUTO COMPLEXITY TRIGGER
+-- ADDED: Automatically updates reporter complexity_level
+-- when they file or publish a story based on average
+-- complexity of all their completed stories
+-- ================================================
 CREATE OR REPLACE FUNCTION auto_update_complexity()
 RETURNS trigger AS
 '
