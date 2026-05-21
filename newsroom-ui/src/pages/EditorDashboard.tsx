@@ -6,11 +6,13 @@ import AssignModal from '../components/AssignModal'
 export default function EditorDashboard() {
   const [stories, setStories] = useState<any[]>([])
   const [alerts, setAlerts] = useState<any[]>([])
+  const [overrideResponses, setOverrideResponses] = useState<any[]>([])
   const [showCreate, setShowCreate] = useState(false)
   const [assignStory, setAssignStory] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [rejectModal, setRejectModal] = useState<{id: string, reporterName: string} | null>(null)
   const [rejectReason, setRejectReason] = useState('')
+  const [overrideDetailModal, setOverrideDetailModal] = useState<any>(null)
   const [form, setForm] = useState({
     headline: '', category: 'Politics', complexity: 3,
     urgency: 'normal', priority: 3, deadline: '', description: ''
@@ -64,6 +66,7 @@ export default function EditorDashboard() {
 
     setStories((storiesData || []).map(s => ({ ...s, reporter_name: assignMap[s.id] })))
 
+    // Fetch leave requests
     const { data: leaves } = await supabase
       .from('leave_requests').select('*')
       .eq('status', 'pending')
@@ -81,21 +84,48 @@ export default function EditorDashboard() {
       ...l, reporter_name: leaveReporterMap[l.reporter_id]
     })))
 
+    // Fetch override assignment responses (accepted or rejected by reporter)
+    const { data: overrides } = await supabase
+      .from('assignments')
+      .select('*, stories(headline, deadline, category)')
+      .eq('is_active', true)
+      .eq('is_override', true)
+      .in('override_status', ['accepted', 'rejected'])
+      .not('override_response', 'is', null)
+      .order('override_responded_at', { ascending: false })
+
+    if (overrides && overrides.length > 0) {
+      const reporterIds = [...new Set(overrides.map((o: any) => o.reporter_id))]
+      const { data: reporters } = await supabase
+        .from('reporters').select('id, name')
+        .in('id', reporterIds)
+      const rMap: Record<string,string> = {}
+      reporters?.forEach((r: any) => { rMap[r.id] = r.name })
+      setOverrideResponses(overrides.map((o: any) => ({
+        ...o,
+        reporter_name: rMap[o.reporter_id],
+        story_headline: o.stories?.headline,
+        story_deadline: o.stories?.deadline,
+        story_category: o.stories?.category
+      })))
+    } else {
+      setOverrideResponses([])
+    }
+
     setLoading(false)
   }
 
   useEffect(() => { load() }, [])
 
-  // Realtime subscription
   useEffect(() => {
     const channel = supabase.channel('dashboard')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'stories' }, load)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'leave_requests' }, load)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'assignments' }, load)
       .subscribe()
     return () => { supabase.removeChannel(channel) }
   }, [])
 
-  // Chatbot refresh listener
   useEffect(() => {
     const handler = () => load()
     window.addEventListener('newsroom-refresh', handler)
@@ -165,10 +195,11 @@ export default function EditorDashboard() {
 
         <div style={{ marginBottom: '24px', padding: '10px 16px', background: 'rgba(255,180,0,0.06)', border: '1px solid rgba(255,180,0,0.15)', borderRadius: '6px', display: 'inline-block' }}>
           <span style={{ color: '#ffb400', fontSize: '11px', letterSpacing: '1px' }}>
-            📅 CURRENT WEEK: {weekStart} → {weekEnd}
+            CURRENT WEEK: {weekStart} to {weekEnd}
           </span>
         </div>
 
+        {/* Stats */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '16px', marginBottom: '32px' }}>
           {stats.map(s => (
             <div key={s.label} style={{ padding: '20px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.07)', background: 'rgba(255,255,255,0.02)' }}>
@@ -178,10 +209,69 @@ export default function EditorDashboard() {
           ))}
         </div>
 
+        {/* Override Responses Banner */}
+        {overrideResponses.length > 0 && (
+          <div style={{ marginBottom: '24px' }}>
+            <h2 style={{ color: '#fff', margin: '0 0 12px', fontSize: '13px', letterSpacing: '1px' }}>
+              OVERRIDE RESPONSES
+              <span style={{ marginLeft: '8px', padding: '2px 8px', background: 'rgba(255,68,68,0.15)', color: '#ff6b6b', borderRadius: '10px', fontSize: '10px' }}>
+                {overrideResponses.length}
+              </span>
+            </h2>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {overrideResponses.map(o => (
+                <div key={o.id} style={{
+                  padding: '14px 16px', borderRadius: '6px',
+                  border: `1px solid ${o.override_status === 'accepted' ? 'rgba(100,200,150,0.25)' : 'rgba(255,68,68,0.25)'}`,
+                  background: o.override_status === 'accepted' ? 'rgba(100,200,150,0.04)' : 'rgba(255,68,68,0.04)',
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px'
+                }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px', flexWrap: 'wrap' }}>
+                      <span style={{
+                        padding: '2px 8px', borderRadius: '3px', fontSize: '9px', letterSpacing: '1px',
+                        background: o.override_status === 'accepted' ? 'rgba(100,200,150,0.15)' : 'rgba(255,68,68,0.15)',
+                        color: o.override_status === 'accepted' ? '#64c896' : '#ff6b6b'
+                      }}>
+                        {o.override_status === 'accepted' ? 'ACCEPTED' : 'REJECTED'}
+                      </span>
+                      <span style={{ color: '#ddd', fontSize: '12px', fontWeight: '600' }}>{o.reporter_name}</span>
+                      <span style={{ color: '#555', fontSize: '11px' }}>{o.story_headline}</span>
+                    </div>
+                    <div style={{ color: o.override_status === 'accepted' ? '#64c896' : '#ff8888', fontSize: '12px', marginBottom: '2px' }}>
+                      Reporter says: "{o.override_response}"
+                    </div>
+                    <div style={{ color: '#444', fontSize: '10px' }}>
+                      Editor reason was: {o.override_reason}
+                      {o.override_responded_at && (
+                        <span style={{ marginLeft: '8px' }}>
+                          · {new Date(o.override_responded_at).toLocaleString()}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setOverrideDetailModal(o)}
+                    style={{
+                      padding: '6px 14px', background: 'transparent',
+                      border: '1px solid rgba(255,255,255,0.1)', borderRadius: '4px',
+                      color: '#888', fontSize: '10px', letterSpacing: '1px',
+                      cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap'
+                    }}>
+                    VIEW DETAILS
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: '24px' }}>
+
+          {/* Stories */}
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-              <h2 style={{ color: '#fff', margin: 0, fontSize: '14px', letterSpacing: '1px' }}>THIS WEEK'S STORIES</h2>
+              <h2 style={{ color: '#fff', margin: 0, fontSize: '14px', letterSpacing: '1px' }}>THIS WEEK STORIES</h2>
               <button onClick={() => setShowCreate(true)} style={{
                 padding: '8px 18px', background: '#ffb400', border: 'none', borderRadius: '4px',
                 color: '#0a0a0f', fontSize: '11px', letterSpacing: '1px', fontWeight: '700',
@@ -224,7 +314,7 @@ export default function EditorDashboard() {
                         border: '1px solid rgba(255,180,0,0.4)', borderRadius: '4px',
                         color: '#ffb400', fontSize: '11px', letterSpacing: '1px',
                         cursor: 'pointer', fontFamily: 'inherit', marginLeft: '16px', whiteSpace: 'nowrap'
-                      }}>ASSIGN →</button>
+                      }}>ASSIGN</button>
                     )}
                   </div>
                 ))}
@@ -237,6 +327,7 @@ export default function EditorDashboard() {
             )}
           </div>
 
+          {/* Leave Alerts */}
           <div>
             <h2 style={{ color: '#fff', margin: '0 0 16px', fontSize: '14px', letterSpacing: '1px' }}>LEAVE ALERTS</h2>
             {alerts.length === 0 ? (
@@ -265,13 +356,13 @@ export default function EditorDashboard() {
                         border: '1px solid rgba(100,200,150,0.3)', borderRadius: '4px',
                         color: '#64c896', fontSize: '10px', letterSpacing: '1px',
                         cursor: 'pointer', fontFamily: 'inherit'
-                      }}>✓ APPROVE</button>
+                      }}>APPROVE</button>
                       <button onClick={() => setRejectModal({ id: alert.id, reporterName: alert.reporter_name })} style={{
                         flex: 1, padding: '7px', background: 'rgba(255,68,68,0.1)',
                         border: '1px solid rgba(255,68,68,0.3)', borderRadius: '4px',
                         color: '#ff6b6b', fontSize: '10px', letterSpacing: '1px',
                         cursor: 'pointer', fontFamily: 'inherit'
-                      }}>✗ REJECT</button>
+                      }}>REJECT</button>
                     </div>
                   </div>
                 ))}
@@ -281,13 +372,14 @@ export default function EditorDashboard() {
         </div>
       </div>
 
+      {/* Create Story Modal */}
       {showCreate && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
           onClick={e => { if (e.target === e.currentTarget) setShowCreate(false) }}>
           <div style={{ background: '#0d0d14', border: '1px solid rgba(255,180,0,0.2)', borderRadius: '8px', width: '100%', maxWidth: '480px', margin: '24px', padding: '24px', fontFamily: '"DM Mono", "Courier New", monospace', maxHeight: '90vh', overflowY: 'auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '20px' }}>
               <h2 style={{ color: '#fff', margin: 0, fontSize: '16px' }}>New Story</h2>
-              <button onClick={() => setShowCreate(false)} style={{ background: 'none', border: 'none', color: '#555', fontSize: '20px', cursor: 'pointer' }}>×</button>
+              <button onClick={() => setShowCreate(false)} style={{ background: 'none', border: 'none', color: '#555', fontSize: '20px', cursor: 'pointer' }}>x</button>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
               <div>
@@ -349,6 +441,7 @@ export default function EditorDashboard() {
         </div>
       )}
 
+      {/* Reject Leave Modal */}
       {rejectModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
           onClick={e => { if (e.target === e.currentTarget) { setRejectModal(null); setRejectReason('') } }}>
@@ -380,6 +473,81 @@ export default function EditorDashboard() {
                 fontFamily: 'inherit', opacity: rejectReason.trim() ? 1 : 0.5
               }}>CONFIRM REJECT</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Override Detail Modal */}
+      {overrideDetailModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
+          onClick={e => { if (e.target === e.currentTarget) setOverrideDetailModal(null) }}>
+          <div style={{ background: '#0d0d14', border: `1px solid ${overrideDetailModal.override_status === 'accepted' ? 'rgba(100,200,150,0.3)' : 'rgba(255,68,68,0.3)'}`, borderRadius: '8px', width: '100%', maxWidth: '440px', margin: '24px', padding: '24px', fontFamily: '"DM Mono", "Courier New", monospace' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '16px' }}>
+              <h2 style={{ color: '#fff', margin: 0, fontSize: '16px' }}>Override Assignment Details</h2>
+              <button onClick={() => setOverrideDetailModal(null)} style={{ background: 'none', border: 'none', color: '#555', fontSize: '20px', cursor: 'pointer' }}>x</button>
+            </div>
+
+            {/* Status badge */}
+            <div style={{ marginBottom: '16px' }}>
+              <span style={{
+                padding: '4px 12px', borderRadius: '4px', fontSize: '10px', letterSpacing: '1px',
+                background: overrideDetailModal.override_status === 'accepted' ? 'rgba(100,200,150,0.15)' : 'rgba(255,68,68,0.15)',
+                color: overrideDetailModal.override_status === 'accepted' ? '#64c896' : '#ff6b6b'
+              }}>
+                REPORTER {overrideDetailModal.override_status === 'accepted' ? 'ACCEPTED' : 'REJECTED'} THE ASSIGNMENT
+              </span>
+            </div>
+
+            {/* Story info */}
+            <div style={{ padding: '12px 14px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '6px', marginBottom: '12px' }}>
+              <p style={{ color: '#888', fontSize: '10px', letterSpacing: '1px', margin: '0 0 4px' }}>STORY</p>
+              <p style={{ color: '#ddd', fontSize: '13px', margin: '0 0 4px', fontWeight: '600' }}>{overrideDetailModal.story_headline}</p>
+              <p style={{ color: '#555', fontSize: '11px', margin: 0 }}>
+                {overrideDetailModal.story_category} · Due {overrideDetailModal.story_deadline}
+              </p>
+            </div>
+
+            {/* Reporter info */}
+            <div style={{ padding: '12px 14px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '6px', marginBottom: '12px' }}>
+              <p style={{ color: '#888', fontSize: '10px', letterSpacing: '1px', margin: '0 0 4px' }}>REPORTER</p>
+              <p style={{ color: '#ddd', fontSize: '13px', margin: 0, fontWeight: '600' }}>{overrideDetailModal.reporter_name}</p>
+            </div>
+
+            {/* Editor override reason */}
+            <div style={{ padding: '12px 14px', background: 'rgba(255,136,0,0.06)', border: '1px solid rgba(255,136,0,0.15)', borderRadius: '6px', marginBottom: '12px' }}>
+              <p style={{ color: '#888', fontSize: '10px', letterSpacing: '1px', margin: '0 0 6px' }}>YOUR OVERRIDE REASON</p>
+              <p style={{ color: '#ff8800', fontSize: '12px', margin: 0, lineHeight: 1.6 }}>{overrideDetailModal.override_reason}</p>
+            </div>
+
+            {/* Reporter response */}
+            <div style={{
+              padding: '12px 14px',
+              background: overrideDetailModal.override_status === 'accepted' ? 'rgba(100,200,150,0.06)' : 'rgba(255,68,68,0.06)',
+              border: `1px solid ${overrideDetailModal.override_status === 'accepted' ? 'rgba(100,200,150,0.15)' : 'rgba(255,68,68,0.15)'}`,
+              borderRadius: '6px', marginBottom: '16px'
+            }}>
+              <p style={{ color: '#888', fontSize: '10px', letterSpacing: '1px', margin: '0 0 6px' }}>REPORTER RESPONSE</p>
+              <p style={{
+                color: overrideDetailModal.override_status === 'accepted' ? '#64c896' : '#ff6b6b',
+                fontSize: '13px', margin: '0 0 6px', lineHeight: 1.6, fontWeight: '600'
+              }}>
+                {overrideDetailModal.override_status === 'accepted' ? 'ACCEPTED' : 'REJECTED'}
+              </p>
+              <p style={{ color: '#aaa', fontSize: '12px', margin: '0 0 6px', lineHeight: 1.6 }}>
+                "{overrideDetailModal.override_response}"
+              </p>
+              {overrideDetailModal.override_responded_at && (
+                <p style={{ color: '#555', fontSize: '10px', margin: 0 }}>
+                  {new Date(overrideDetailModal.override_responded_at).toLocaleString()}
+                </p>
+              )}
+            </div>
+
+            <button onClick={() => setOverrideDetailModal(null)} style={{
+              width: '100%', padding: '11px', background: 'transparent',
+              border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px',
+              color: '#555', fontSize: '12px', cursor: 'pointer', fontFamily: 'inherit'
+            }}>CLOSE</button>
           </div>
         </div>
       )}

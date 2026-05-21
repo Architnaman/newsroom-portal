@@ -9,23 +9,39 @@ const statusColor = { assigned: "#ffb400", in_progress: "#64c896", filed: "#8888
 export default function ReporterQueue() {
   const { reporterId } = useAuth()
   const [stories, setStories] = useState([])
+  const [assignments, setAssignments] = useState([])
   const [loading, setLoading] = useState(true)
   const [updating, setUpdating] = useState(null)
   const [uploadingId, setUploadingId] = useState(null)
   const [fileModal, setFileModal] = useState(null)
   const [selectedFile, setSelectedFile] = useState(null)
   const [feedbackModal, setFeedbackModal] = useState(null)
+  const [overrideModal, setOverrideModal] = useState<{story: any, action: "accept" | "reject"} | null>(null)
+  const [overrideResponse, setOverrideResponse] = useState("")
+  const [overrideLoading, setOverrideLoading] = useState(false)
 
   async function load() {
     if (!reporterId) return
-    const { data } = await supabase.from("assignments").select("*, stories(*)").eq("reporter_id", reporterId).eq("is_active", true).order("assigned_at", { ascending: false })
-    setStories((data || []).map(a => ({ ...a.stories, assignment_id: a.id })))
+    const { data } = await supabase
+      .from("assignments")
+      .select("*, stories(*)")
+      .eq("reporter_id", reporterId)
+      .eq("is_active", true)
+      .order("assigned_at", { ascending: false })
+    setAssignments(data || [])
+    setStories((data || []).map(a => ({
+      ...a.stories,
+      assignment_id: a.id,
+      is_override: a.is_override,
+      override_reason: a.override_reason,
+      override_status: a.override_status,
+      override_response: a.override_response
+    })))
     setLoading(false)
   }
 
   useEffect(() => { load() }, [reporterId])
 
-  // Chatbot refresh listener
   useEffect(() => {
     const handler = () => load()
     window.addEventListener("newsroom-refresh", handler)
@@ -37,6 +53,33 @@ export default function ReporterQueue() {
     await supabase.from("stories").update({ status: "in_progress" }).eq("id", story.id)
     await load()
     setUpdating(null)
+  }
+
+  async function handleOverride(story, actionType: "accept" | "reject") {
+    if (!overrideResponse.trim()) return
+    setOverrideLoading(true)
+    try {
+      if (actionType === "accept") {
+        await supabase.from("assignments").update({
+          override_status: "accepted",
+          override_response: overrideResponse,
+          override_responded_at: new Date().toISOString()
+        }).eq("id", story.assignment_id)
+      } else {
+        await supabase.from("assignments").update({
+          override_status: "rejected",
+          override_response: overrideResponse,
+          override_responded_at: new Date().toISOString()
+        }).eq("id", story.assignment_id)
+        await supabase.from("stories").update({ status: "unassigned" }).eq("id", story.id)
+      }
+      setOverrideModal(null)
+      setOverrideResponse("")
+      await load()
+    } catch (err: any) {
+      alert("Error: " + err.message)
+    }
+    setOverrideLoading(false)
   }
 
   async function uploadAndFile() {
@@ -52,7 +95,7 @@ export default function ReporterQueue() {
       setFileModal(null)
       setSelectedFile(null)
       await load()
-    } catch (err) { alert("Error: " + err.message) }
+    } catch (err: any) { alert("Error: " + err.message) }
     setUploadingId(null)
   }
 
@@ -67,6 +110,7 @@ export default function ReporterQueue() {
           <h1 style={{ color: "#fff", margin: "0 0 4px", fontSize: "18px" }}>My Stories</h1>
           <p style={{ color: "#555", margin: 0, fontSize: "12px" }}>Your active assignments</p>
         </div>
+
         {loading ? (
           <div style={{ color: "#555", textAlign: "center", padding: "60px" }}>Loading...</div>
         ) : (
@@ -78,40 +122,95 @@ export default function ReporterQueue() {
               ) : (
                 <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
                   {active.map(story => (
-                    <div key={story.id} style={{ padding: "20px", borderRadius: "6px", border: "1px solid rgba(255,255,255,0.07)", background: "rgba(255,255,255,0.02)" }}>
+                    <div key={story.id} style={{
+                      padding: "20px", borderRadius: "6px",
+                      border: "1px solid " + (story.is_override && story.override_status === "pending" ? "rgba(255,68,68,0.3)" : "rgba(255,255,255,0.07)"),
+                      background: story.is_override && story.override_status === "pending" ? "rgba(255,68,68,0.04)" : "rgba(255,255,255,0.02)"
+                    }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "8px", flexWrap: "wrap" }}>
-                            <span style={{ padding: "2px 8px", borderRadius: "3px", fontSize: "9px", background: urgencyColor[story.urgency] + "20", color: urgencyColor[story.urgency] }}>{story.urgency ? story.urgency.toUpperCase() : ""}</span>
-                            <span style={{ padding: "2px 8px", borderRadius: "3px", fontSize: "9px", background: statusColor[story.status] + "15", color: statusColor[story.status] }}>{story.status ? story.status.replace("_", " ").toUpperCase() : ""}</span>
+                            <span style={{ padding: "2px 8px", borderRadius: "3px", fontSize: "9px", background: urgencyColor[story.urgency] + "20", color: urgencyColor[story.urgency] }}>
+                              {story.urgency ? story.urgency.toUpperCase() : ""}
+                            </span>
+                            <span style={{ padding: "2px 8px", borderRadius: "3px", fontSize: "9px", background: statusColor[story.status] + "15", color: statusColor[story.status] }}>
+                              {story.status ? story.status.replace("_", " ").toUpperCase() : ""}
+                            </span>
                             <span style={{ color: "#444", fontSize: "11px" }}>{story.category}</span>
+                            {story.is_override && (
+                              <span style={{ padding: "2px 8px", borderRadius: "3px", fontSize: "9px", background: "rgba(255,68,68,0.15)", color: "#ff6b6b", letterSpacing: "1px" }}>
+                                OVERRIDE
+                              </span>
+                            )}
                           </div>
                           <h3 style={{ color: "#fff", margin: "0 0 8px", fontSize: "15px", fontWeight: "600" }}>{story.headline}</h3>
                           <div style={{ display: "flex", gap: "16px" }}>
                             <span style={{ color: "#555", fontSize: "11px" }}>Deadline: <span style={{ color: "#888" }}>{story.deadline}</span></span>
                             <span style={{ color: "#555", fontSize: "11px" }}>Complexity: <span style={{ color: "#888" }}>{story.complexity}/5</span></span>
                           </div>
+
+                          {/* Reassign reason */}
                           {story.reassign_reason && (
                             <div style={{ marginTop: "10px", padding: "10px 14px", background: "rgba(255,136,0,0.08)", border: "1px solid rgba(255,136,0,0.2)", borderRadius: "6px" }}>
                               <p style={{ color: "#888", fontSize: "10px", margin: "0 0 4px" }}>REASSIGNED - EDITOR FEEDBACK</p>
                               <p style={{ color: "#ff8800", fontSize: "12px", margin: 0 }}>{story.reassign_reason}</p>
                             </div>
                           )}
-                        </div>
-                        <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginLeft: "16px" }}>
-                          {story.status === "assigned" && (
-                            <button onClick={() => startWorking(story)} disabled={updating === story.id}
-                              style={{ padding: "10px 16px", background: "rgba(255,180,0,0.1)", border: "1px solid rgba(255,180,0,0.3)", borderRadius: "4px", color: "#ffb400", fontSize: "10px", letterSpacing: "1px", cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap", opacity: updating === story.id ? 0.6 : 1 }}>
-                              {updating === story.id ? "..." : "START WORKING"}
-                            </button>
+
+                          {/* Override pending notice */}
+                          {story.is_override && story.override_status === "pending" && (
+                            <div style={{ marginTop: "10px", padding: "12px 14px", background: "rgba(255,68,68,0.08)", border: "1px solid rgba(255,68,68,0.2)", borderRadius: "6px" }}>
+                              <p style={{ color: "#ff6b6b", fontSize: "10px", letterSpacing: "1px", margin: "0 0 6px" }}>
+                                OVERRIDE ASSIGNMENT - YOU ARE CURRENTLY UNAVAILABLE
+                              </p>
+                              <p style={{ color: "#888", fontSize: "11px", margin: "0 0 10px" }}>
+                                Editor reason: <span style={{ color: "#ff8800" }}>{story.override_reason}</span>
+                              </p>
+                              <p style={{ color: "#666", fontSize: "11px", margin: "0 0 10px" }}>
+                                Please accept or reject this assignment with a valid reason.
+                              </p>
+                              <div style={{ display: "flex", gap: "8px" }}>
+                                <button
+                                  onClick={() => setOverrideModal({ story, action: "accept" })}
+                                  style={{ flex: 1, padding: "8px", background: "rgba(100,200,150,0.1)", border: "1px solid rgba(100,200,150,0.3)", borderRadius: "4px", color: "#64c896", fontSize: "10px", letterSpacing: "1px", cursor: "pointer", fontFamily: "inherit" }}>
+                                  ACCEPT
+                                </button>
+                                <button
+                                  onClick={() => setOverrideModal({ story, action: "reject" })}
+                                  style={{ flex: 1, padding: "8px", background: "rgba(255,68,68,0.1)", border: "1px solid rgba(255,68,68,0.3)", borderRadius: "4px", color: "#ff6b6b", fontSize: "10px", letterSpacing: "1px", cursor: "pointer", fontFamily: "inherit" }}>
+                                  REJECT
+                                </button>
+                              </div>
+                            </div>
                           )}
-                          {story.status === "in_progress" && (
-                            <button onClick={() => setFileModal(story)}
-                              style={{ padding: "10px 16px", background: "rgba(136,136,255,0.1)", border: "1px solid rgba(136,136,255,0.3)", borderRadius: "4px", color: "#8888ff", fontSize: "10px", letterSpacing: "1px", cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap" }}>
-                              FILE REPORT
-                            </button>
+
+                          {/* Override accepted notice */}
+                          {story.is_override && story.override_status === "accepted" && (
+                            <div style={{ marginTop: "10px", padding: "10px 14px", background: "rgba(100,200,150,0.08)", border: "1px solid rgba(100,200,150,0.2)", borderRadius: "6px" }}>
+                              <p style={{ color: "#64c896", fontSize: "11px", margin: 0 }}>
+                                You accepted this override assignment
+                              </p>
+                            </div>
                           )}
                         </div>
+
+                        {/* Action buttons - only show if override is resolved or not override */}
+                        {(!story.is_override || story.override_status === "accepted") && (
+                          <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginLeft: "16px" }}>
+                            {story.status === "assigned" && (
+                              <button onClick={() => startWorking(story)} disabled={updating === story.id}
+                                style={{ padding: "10px 16px", background: "rgba(255,180,0,0.1)", border: "1px solid rgba(255,180,0,0.3)", borderRadius: "4px", color: "#ffb400", fontSize: "10px", letterSpacing: "1px", cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap", opacity: updating === story.id ? 0.6 : 1 }}>
+                                {updating === story.id ? "..." : "START WORKING"}
+                              </button>
+                            )}
+                            {story.status === "in_progress" && (
+                              <button onClick={() => setFileModal(story)}
+                                style={{ padding: "10px 16px", background: "rgba(136,136,255,0.1)", border: "1px solid rgba(136,136,255,0.3)", borderRadius: "4px", color: "#8888ff", fontSize: "10px", letterSpacing: "1px", cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap" }}>
+                                FILE REPORT
+                              </button>
+                            )}
+                          </div>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -151,6 +250,81 @@ export default function ReporterQueue() {
         )}
       </div>
 
+      {/* Override Accept/Reject Modal */}
+      {overrideModal && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}
+          onClick={e => { if (e.target === e.currentTarget) { setOverrideModal(null); setOverrideResponse("") } }}>
+          <div style={{ background: "#0d0d14", border: "1px solid " + (overrideModal.action === "accept" ? "rgba(100,200,150,0.3)" : "rgba(255,68,68,0.3)"), borderRadius: "8px", width: "100%", maxWidth: "440px", margin: "24px", padding: "24px", fontFamily: "DM Mono, Courier New, monospace" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "8px" }}>
+              <h2 style={{ color: "#fff", margin: 0, fontSize: "16px" }}>
+                {overrideModal.action === "accept" ? "Accept Override Assignment" : "Reject Override Assignment"}
+              </h2>
+              <button onClick={() => { setOverrideModal(null); setOverrideResponse("") }} style={{ background: "none", border: "none", color: "#555", fontSize: "20px", cursor: "pointer" }}>x</button>
+            </div>
+
+            <p style={{ color: "#555", fontSize: "12px", margin: "0 0 6px" }}>
+              Story: <span style={{ color: "#ddd" }}>{overrideModal.story.headline}</span>
+            </p>
+            <p style={{ color: "#555", fontSize: "12px", margin: "0 0 16px" }}>
+              Editor reason: <span style={{ color: "#ff8800" }}>{overrideModal.story.override_reason}</span>
+            </p>
+
+            <div style={{ padding: "10px 14px", background: overrideModal.action === "accept" ? "rgba(100,200,150,0.08)" : "rgba(255,68,68,0.08)", border: "1px solid " + (overrideModal.action === "accept" ? "rgba(100,200,150,0.2)" : "rgba(255,68,68,0.2)"), borderRadius: "5px", marginBottom: "16px" }}>
+              <p style={{ color: overrideModal.action === "accept" ? "#64c896" : "#ff6b6b", fontSize: "11px", margin: 0 }}>
+                {overrideModal.action === "accept"
+                  ? "By accepting, you commit to covering this story despite being unavailable."
+                  : "By rejecting, the story will be moved back to unassigned and editor will be notified."}
+              </p>
+            </div>
+
+            <div style={{ marginBottom: "16px" }}>
+              <label style={{ color: "#888", fontSize: "11px", letterSpacing: "1px", display: "block", marginBottom: "6px" }}>
+                YOUR REASON <span style={{ color: "#ff6b6b" }}>*required</span>
+              </label>
+              <textarea
+                value={overrideResponse}
+                onChange={e => setOverrideResponse(e.target.value)}
+                rows={3}
+                placeholder={overrideModal.action === "accept"
+                  ? "e.g. I can manage the story despite being unavailable today..."
+                  : "e.g. I am unable to cover this story due to medical emergency..."}
+                style={{ width: "100%", padding: "10px 12px", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "6px", color: "#fff", fontSize: "13px", outline: "none", boxSizing: "border-box", fontFamily: "inherit", resize: "none" }}
+              />
+            </div>
+
+            <div style={{ display: "flex", gap: "8px" }}>
+              <button onClick={() => { setOverrideModal(null); setOverrideResponse("") }}
+                style={{ flex: 1, padding: "11px", background: "transparent", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "6px", color: "#666", fontSize: "12px", cursor: "pointer", fontFamily: "inherit" }}>
+                CANCEL
+              </button>
+              <button
+                onClick={() => handleOverride(overrideModal.story, overrideModal.action)}
+                disabled={!overrideResponse.trim() || overrideLoading}
+                style={{
+                  flex: 1, padding: "11px",
+                  background: overrideResponse.trim()
+                    ? (overrideModal.action === "accept" ? "rgba(100,200,150,0.15)" : "rgba(255,68,68,0.15)")
+                    : "rgba(255,255,255,0.03)",
+                  border: "1px solid " + (overrideResponse.trim()
+                    ? (overrideModal.action === "accept" ? "rgba(100,200,150,0.4)" : "rgba(255,68,68,0.4)")
+                    : "rgba(255,255,255,0.08)"),
+                  borderRadius: "6px",
+                  color: overrideResponse.trim()
+                    ? (overrideModal.action === "accept" ? "#64c896" : "#ff6b6b")
+                    : "#444",
+                  fontSize: "12px", fontWeight: "700",
+                  cursor: overrideResponse.trim() ? "pointer" : "not-allowed",
+                  fontFamily: "inherit",
+                  opacity: overrideLoading ? 0.6 : overrideResponse.trim() ? 1 : 0.5
+                }}>
+                {overrideLoading ? "PROCESSING..." : overrideModal.action === "accept" ? "CONFIRM ACCEPT" : "CONFIRM REJECT"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* File Upload Modal */}
       {fileModal && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}
           onClick={e => { if (e.target === e.currentTarget) { setFileModal(null); setSelectedFile(null) } }}>
@@ -189,6 +363,7 @@ export default function ReporterQueue() {
         </div>
       )}
 
+      {/* Feedback Modal */}
       {feedbackModal && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}
           onClick={e => { if (e.target === e.currentTarget) setFeedbackModal(null) }}>
