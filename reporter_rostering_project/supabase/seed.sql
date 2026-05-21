@@ -13,7 +13,11 @@ VALUES
   ('66666666-6666-6666-6666-666666666666', 'Editor Admin', 'editor@newsroom.com', ARRAY[]::text[],                   'inactive', 0, 3)
 ON CONFLICT (email) DO NOTHING;
 
--- Insert Auth Users (password = editor123 for all)
+-- ================================================
+-- MODIFIED: Using crypt() instead of hardcoded hash
+-- so passwords work correctly on any device
+-- Password for all users: editor123
+-- ================================================
 INSERT INTO auth.users (
   instance_id, id, aud, role, email,
   encrypted_password, email_confirmed_at,
@@ -23,29 +27,64 @@ INSERT INTO auth.users (
   email_change_token_new, recovery_token
 )
 VALUES
-  ('00000000-0000-0000-0000-000000000000', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'authenticated', 'authenticated', 'editor@newsroom.com',
-   '\\\.IG/GC0u4H.OtXNJWLmdbkWBSGKbFl7R62oQ8rUVUKO', now(),
-   '{"provider":"email","providers":["email"]}', '{"name":"Editor Admin","role":"editor"}',
+  ('00000000-0000-0000-0000-000000000000',
+   'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+   'authenticated', 'authenticated',
+   'editor@newsroom.com',
+   crypt('editor123', gen_salt('bf')), -- MODIFIED: dynamic password hashing
+   now(),
+   '{"provider":"email","providers":["email"]}',
+   '{"name":"Editor Admin","role":"editor"}',
    now(), now(), '', '', '', ''),
-  ('00000000-0000-0000-0000-000000000000', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'authenticated', 'authenticated', 'priya@newsroom.com',
-   '\\\.IG/GC0u4H.OtXNJWLmdbkWBSGKbFl7R62oQ8rUVUKO', now(),
-   '{"provider":"email","providers":["email"]}', '{"name":"Priya Mehta","role":"reporter"}',
+
+  ('00000000-0000-0000-0000-000000000000',
+   'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+   'authenticated', 'authenticated',
+   'priya@newsroom.com',
+   crypt('editor123', gen_salt('bf')), -- MODIFIED: dynamic password hashing
+   now(),
+   '{"provider":"email","providers":["email"]}',
+   '{"name":"Priya Mehta","role":"reporter"}',
    now(), now(), '', '', '', ''),
-  ('00000000-0000-0000-0000-000000000000', 'cccccccc-cccc-cccc-cccc-cccccccccccc', 'authenticated', 'authenticated', 'arjun@newsroom.com',
-   '\\\.IG/GC0u4H.OtXNJWLmdbkWBSGKbFl7R62oQ8rUVUKO', now(),
-   '{"provider":"email","providers":["email"]}', '{"name":"Arjun Sharma","role":"reporter"}',
+
+  ('00000000-0000-0000-0000-000000000000',
+   'cccccccc-cccc-cccc-cccc-cccccccccccc',
+   'authenticated', 'authenticated',
+   'arjun@newsroom.com',
+   crypt('editor123', gen_salt('bf')), -- MODIFIED: dynamic password hashing
+   now(),
+   '{"provider":"email","providers":["email"]}',
+   '{"name":"Arjun Sharma","role":"reporter"}',
    now(), now(), '', '', '', ''),
-  ('00000000-0000-0000-0000-000000000000', 'dddddddd-dddd-dddd-dddd-dddddddddddd', 'authenticated', 'authenticated', 'fatima@newsroom.com',
-   '\\\.IG/GC0u4H.OtXNJWLmdbkWBSGKbFl7R62oQ8rUVUKO', now(),
-   '{"provider":"email","providers":["email"]}', '{"name":"Fatima Nair","role":"reporter"}',
+
+  ('00000000-0000-0000-0000-000000000000',
+   'dddddddd-dddd-dddd-dddd-dddddddddddd',
+   'authenticated', 'authenticated',
+   'fatima@newsroom.com',
+   crypt('editor123', gen_salt('bf')), -- MODIFIED: dynamic password hashing
+   now(),
+   '{"provider":"email","providers":["email"]}',
+   '{"name":"Fatima Nair","role":"reporter"}',
    now(), now(), '', '', '', ''),
-  ('00000000-0000-0000-0000-000000000000', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'authenticated', 'authenticated', 'ravi@newsroom.com',
-   '\\\.IG/GC0u4H.OtXNJWLmdbkWBSGKbFl7R62oQ8rUVUKO', now(),
-   '{"provider":"email","providers":["email"]}', '{"name":"Ravi Iyer","role":"reporter"}',
+
+  ('00000000-0000-0000-0000-000000000000',
+   'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee',
+   'authenticated', 'authenticated',
+   'ravi@newsroom.com',
+   crypt('editor123', gen_salt('bf')), -- MODIFIED: dynamic password hashing
+   now(),
+   '{"provider":"email","providers":["email"]}',
+   '{"name":"Ravi Iyer","role":"reporter"}',
    now(), now(), '', '', '', ''),
-  ('00000000-0000-0000-0000-000000000000', 'ffffffff-ffff-ffff-ffff-ffffffffffff', 'authenticated', 'authenticated', 'sunita@newsroom.com',
-   '\\\.IG/GC0u4H.OtXNJWLmdbkWBSGKbFl7R62oQ8rUVUKO', now(),
-   '{"provider":"email","providers":["email"]}', '{"name":"Sunita Rao","role":"reporter"}',
+
+  ('00000000-0000-0000-0000-000000000000',
+   'ffffffff-ffff-ffff-ffff-ffffffffffff',
+   'authenticated', 'authenticated',
+   'sunita@newsroom.com',
+   crypt('editor123', gen_salt('bf')), -- MODIFIED: dynamic password hashing
+   now(),
+   '{"provider":"email","providers":["email"]}',
+   '{"name":"Sunita Rao","role":"reporter"}',
    now(), now(), '', '', '', '')
 ON CONFLICT (id) DO NOTHING;
 
@@ -60,7 +99,10 @@ VALUES
   ('ffffffff-ffff-ffff-ffff-ffffffffffff', '55555555-5555-5555-5555-555555555555', 'reporter')
 ON CONFLICT (id) DO NOTHING;
 
--- Insert Default Availability (all 7 days for current week)
+-- ================================================
+-- ADDED: Default availability for all reporters
+-- Sets all 7 days available for current week
+-- ================================================
 INSERT INTO availability (reporter_id, week_start_date, available_days)
 SELECT
   id,
