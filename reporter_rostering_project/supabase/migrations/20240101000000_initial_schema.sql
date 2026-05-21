@@ -127,6 +127,30 @@ VALUES ('story-files', 'story-files', true)
 ON CONFLICT (id) DO NOTHING;
 
 -- ================================================
+-- ADDED: Fix storage RLS for local dev
+-- Drops all existing policies and creates one
+-- open policy so reporters can upload Word files
+-- ================================================
+DROP POLICY IF EXISTS "story_files_upload" ON storage.objects;
+DROP POLICY IF EXISTS "story_files_read" ON storage.objects;
+DROP POLICY IF EXISTS "story_files_delete" ON storage.objects;
+DROP POLICY IF EXISTS "allow_all" ON storage.objects;
+DROP POLICY IF EXISTS "allow_upload" ON storage.objects;
+DROP POLICY IF EXISTS "allow_read" ON storage.objects;
+DROP POLICY IF EXISTS "allow_delete" ON storage.objects;
+DROP POLICY IF EXISTS "auth_upload" ON storage.objects;
+DROP POLICY IF EXISTS "public_read" ON storage.objects;
+DROP POLICY IF EXISTS "auth_delete" ON storage.objects;
+DROP POLICY IF EXISTS "story_files_update" ON storage.objects;
+DROP POLICY IF EXISTS "story_files_public_read" ON storage.objects;
+DROP POLICY IF EXISTS "open_access" ON storage.objects;
+
+CREATE POLICY "open_access" ON storage.objects
+FOR ALL USING (true)
+WITH CHECK (true);
+-- END ADDED
+
+-- ================================================
 -- AUTO COMPLEXITY TRIGGER
 -- ADDED: Automatically updates reporter complexity_level
 -- when they file or publish a story based on average
