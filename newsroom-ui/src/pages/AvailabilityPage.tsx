@@ -54,7 +54,6 @@ export default function AvailabilityPage() {
   const weekStart = getCurrentWeekStart()
   const weekDates = getCurrentWeekDates()
   const today = getTodayStr()
-  const weekEnd = weekDates['Sun']
 
   async function load() {
     if (!reporterId) return
@@ -258,7 +257,7 @@ export default function AvailabilityPage() {
             }}>
               {saving ? 'SAVING...' : 'SAVE AVAILABILITY'}
             </button>
-            {saved && <span style={{ color: '#64c896', fontSize: '12px' }}>✓ Saved!</span>}
+            {saved && <span style={{ color: '#64c896', fontSize: '12px' }}>Saved!</span>}
             <span style={{ color: '#555', fontSize: '12px', marginLeft: 'auto' }}>
               {selectedDays.length} day{selectedDays.length !== 1 ? 's' : ''} selected
             </span>
@@ -308,7 +307,7 @@ export default function AvailabilityPage() {
                       {leave.status === 'rejected' && leave.reject_reason && (
                         <div style={{ padding: '6px 10px', background: 'rgba(255,68,68,0.08)', borderRadius: '4px', marginTop: '6px' }}>
                           <p style={{ color: '#ff8888', fontSize: '11px', margin: 0 }}>
-                            ✗ Rejected: {leave.reject_reason}
+                            Rejected: {leave.reject_reason}
                           </p>
                         </div>
                       )}
@@ -324,22 +323,23 @@ export default function AvailabilityPage() {
         </div>
       </div>
 
-      {/* Leave Modal */}
+      {/* Leave Modal - MODIFIED: removed max date restriction, reporter can apply for any future date */}
       {showLeave && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
           onClick={e => { if (e.target === e.currentTarget) setShowLeave(false) }}>
           <div style={{ background: '#0d0d14', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', width: '100%', maxWidth: '400px', margin: '24px', padding: '24px', fontFamily: '"DM Mono", "Courier New", monospace' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '20px' }}>
               <h2 style={{ color: '#fff', margin: 0, fontSize: '16px' }}>File Leave Request</h2>
-              <button onClick={() => setShowLeave(false)} style={{ background: 'none', border: 'none', color: '#555', fontSize: '20px', cursor: 'pointer' }}>×</button>
+              <button onClick={() => setShowLeave(false)} style={{ background: 'none', border: 'none', color: '#555', fontSize: '20px', cursor: 'pointer' }}>x</button>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
               <div>
+                {/* MODIFIED: removed max date restriction — any future date allowed */}
                 <label style={{ color: '#888', fontSize: '11px', letterSpacing: '1px', display: 'block', marginBottom: '6px' }}>
-                  LEAVE DATE <span style={{ color: '#555' }}>(This week: {today} to {weekEnd})</span>
+                  LEAVE DATE <span style={{ color: '#555' }}>(Any future date)</span>
                 </label>
                 <input type="date" value={leaveForm.leave_date}
-                  min={today} max={weekEnd}
+                  min={today}
                   onChange={e => setLeaveForm(p => ({ ...p, leave_date: e.target.value }))}
                   style={{ width: '100%', padding: '10px 12px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', color: '#fff', fontSize: '13px', outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit', colorScheme: 'dark' }} />
               </div>
@@ -367,7 +367,7 @@ export default function AvailabilityPage() {
               </div>
               {leaveForm.leave_type !== 'planned' && (
                 <div style={{ padding: '10px', background: 'rgba(255,68,68,0.08)', border: '1px solid rgba(255,68,68,0.2)', borderRadius: '5px' }}>
-                  <p style={{ color: '#ff8888', fontSize: '11px', margin: 0 }}>⚠ Emergency/sick leave will immediately alert editors</p>
+                  <p style={{ color: '#ff8888', fontSize: '11px', margin: 0 }}>Emergency/sick leave will immediately alert editors</p>
                 </div>
               )}
               <button onClick={submitLeave} disabled={submittingLeave || !leaveForm.leave_date} style={{

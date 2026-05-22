@@ -12,10 +12,12 @@ export default function Navbar() {
     { label: 'Dashboard', path: '/dashboard' },
     { label: 'Kanban', path: '/kanban' },
     { label: 'Roster', path: '/roster' },
+    { label: 'Calendar', path: '/calendar' }, // ADDED
   ]
   const reporterNav: NavItem[] = [
     { label: 'My Stories', path: '/queue' },
     { label: 'Availability', path: '/availability' },
+    { label: 'Calendar', path: '/calendar' }, // ADDED
   ]
 
   const nav = role === 'editor' ? editorNav : reporterNav
@@ -29,7 +31,7 @@ export default function Navbar() {
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '32px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#ffb400' }}/>
+          <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#ffb400' }} />
           <span style={{ color: '#ffb400', fontSize: '12px', letterSpacing: '2px', fontWeight: '700' }}>NEWSROOM</span>
         </div>
         <div style={{ display: 'flex', gap: '4px' }}>

@@ -134,6 +134,14 @@ ALTER TABLE notification_log DISABLE ROW LEVEL SECURITY;
 ALTER TABLE holidays DISABLE ROW LEVEL SECURITY; -- ADDED
 
 -- ================================================
+-- ADDED: Grant read access to holidays table
+-- Fixes RLS blocking anon key from reading holidays
+-- ================================================
+GRANT SELECT ON holidays TO anon;
+GRANT SELECT ON holidays TO authenticated;
+-- END ADDED
+
+-- ================================================
 -- STORAGE BUCKET
 -- ADDED: For storing reporter Word document uploads
 -- ================================================
@@ -166,8 +174,9 @@ WITH CHECK (true);
 -- END ADDED
 
 -- ================================================
--- ADDED: Default Indian holidays for 2026
--- Inserted into holidays table as seed data
+-- ADDED: Default Indian public holidays for 2026
+-- These make all reporters unavailable by default
+-- on these dates unless override assigned
 -- ================================================
 INSERT INTO holidays (date, name, is_recurring) VALUES
   ('2026-01-01', 'New Year Day', true),

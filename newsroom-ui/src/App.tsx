@@ -6,15 +6,16 @@ import KanbanBoard from './pages/KanbanBoard'
 import ReporterQueue from './pages/ReporterQueue'
 import AvailabilityPage from './pages/AvailabilityPage'
 import ReporterRoster from './pages/ReporterRoster'
+import CalendarPage from './pages/CalendarPage' // ADDED
 import Chatbot from './components/Chatbot'
 
 function ProtectedRoute({ children, requiredRole }: { children: React.ReactNode, requiredRole?: string }) {
   const { user, role, loading } = useAuth()
   if (loading) return (
-    <div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',background:'#0a0a0f'}}>
-      <div style={{textAlign:'center'}}>
-        <div style={{width:'8px',height:'8px',borderRadius:'50%',background:'#ffb400',margin:'0 auto 12px',animation:'pulse 1s infinite'}}/>
-        <p style={{color:'#555',fontFamily:'monospace',fontSize:'12px'}}>Loading...</p>
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0a0a0f' }}>
+      <div style={{ textAlign: 'center' }}>
+        <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#ffb400', margin: '0 auto 12px', animation: 'pulse 1s infinite' }} />
+        <p style={{ color: '#555', fontFamily: 'monospace', fontSize: '12px' }}>Loading...</p>
       </div>
       <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}`}</style>
     </div>
@@ -35,6 +36,8 @@ function AppRoutes() {
         <Route path="/roster" element={<ProtectedRoute requiredRole="editor"><ReporterRoster /></ProtectedRoute>} />
         <Route path="/queue" element={<ProtectedRoute requiredRole="reporter"><ReporterQueue /></ProtectedRoute>} />
         <Route path="/availability" element={<ProtectedRoute requiredRole="reporter"><AvailabilityPage /></ProtectedRoute>} />
+        {/* ADDED: Calendar route for both roles */}
+        <Route path="/calendar" element={<ProtectedRoute><CalendarPage /></ProtectedRoute>} />
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
       {user && <Chatbot />}

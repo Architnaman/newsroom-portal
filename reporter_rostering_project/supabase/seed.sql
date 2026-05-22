@@ -112,3 +112,28 @@ FROM reporters
 WHERE status = 'active'
 ON CONFLICT (reporter_id, week_start_date)
 DO UPDATE SET available_days = ARRAY['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+
+-- ================================================
+-- ADDED: Default Indian public holidays for 2026
+-- These make all reporters unavailable by default
+-- on these dates unless override assigned
+-- ================================================
+INSERT INTO holidays (date, name, is_recurring) VALUES
+  ('2026-01-01', 'New Year Day', true),
+  ('2026-01-26', 'Republic Day', true),
+  ('2026-03-25', 'Holi', true),
+  ('2026-04-03', 'Good Friday', true),
+  ('2026-04-14', 'Dr. Ambedkar Jayanti', true),
+  ('2026-04-30', 'Eid ul-Fitr', true),
+  ('2026-05-25', 'Buddha Purnima', true),
+  ('2026-07-07', 'Eid ul-Adha', true),
+  ('2026-08-15', 'Independence Day', true),
+  ('2026-08-28', 'Janmashtami', true),
+  ('2026-09-17', 'Ganesh Chaturthi', true),
+  ('2026-10-02', 'Gandhi Jayanti', true),
+  ('2026-10-20', 'Dussehra', true),
+  ('2026-11-08', 'Diwali', true),
+  ('2026-11-24', 'Guru Nanak Jayanti', true),
+  ('2026-12-25', 'Christmas', true)
+ON CONFLICT (date) DO NOTHING;
+-- END ADDED
