@@ -1,11 +1,14 @@
 import { useState, useRef, useEffect } from "react"
 import { supabase } from "../lib/supabase"
 import { useAuth } from "../context/AuthContext"
+import { useTheme } from "../context/ThemeContext"
 
 const GROQ_API_KEY = import.meta.env.VITE_GROQ_API_KEY
 
 export default function Chatbot() {
   const { role, reporterId } = useAuth()
+  const { t } = useTheme()
+
   const [open, setOpen] = useState(false)
   const [messages, setMessages] = useState([
     {
@@ -53,18 +56,15 @@ export default function Chatbot() {
     }
   }
 
-  // ADDED: Role-based action guard — prevents reporter from executing editor actions
   function isActionAllowedForRole(actionType: string): boolean {
     const editorOnlyActions = ["create_story", "assign_story", "override_assign_story", "approve_leave", "reject_leave", "publish_story"]
     const reporterOnlyActions = ["start_working", "file_leave", "update_availability", "accept_override", "reject_override"]
-
     if (role === "editor" && editorOnlyActions.includes(actionType)) return true
     if (role === "reporter" && reporterOnlyActions.includes(actionType)) return true
     return false
   }
 
   async function executeAction(action: any) {
-    // ADDED: Block action if not allowed for current role
     if (!isActionAllowedForRole(action.type)) {
       return "Sorry, you do not have permission to perform this action. " +
         (role === "reporter" ? "Only editors can create stories, assign reporters and publish stories." : "")
@@ -73,14 +73,10 @@ export default function Chatbot() {
     try {
       if (action.type === "create_story") {
         const { data, error } = await supabase.from("stories").insert({
-          headline: action.headline,
-          category: action.category || "General",
-          urgency: action.urgency || "normal",
-          complexity: action.complexity || 3,
-          priority: action.priority || 3,
-          deadline: action.deadline,
-          description: action.description || "",
-          status: "unassigned"
+          headline: action.headline, category: action.category || "General",
+          urgency: action.urgency || "normal", complexity: action.complexity || 3,
+          priority: action.priority || 3, deadline: action.deadline,
+          description: action.description || "", status: "unassigned"
         }).select().single()
         if (error) return "Failed to create story: " + error.message
         return "Story created! Headline: " + data.headline + " | Deadline: " + data.deadline + " | Status: UNASSIGNED"
@@ -92,10 +88,8 @@ export default function Chatbot() {
           const leaveDate = new Date(leave.leave_date + "T00:00:00Z")
           const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
           const dayName = days[leaveDate.getUTCDay()]
-          const d = new Date()
-          const day = d.getDay()
-          const diff = d.getDate() - day + (day === 0 ? -6 : 1)
-          d.setDate(diff)
+          const d = new Date(); const day = d.getDay()
+          const diff = d.getDate() - day + (day === 0 ? -6 : 1); d.setDate(diff)
           const weekStart = d.toISOString().split("T")[0]
           const { data: avail } = await supabase.from("availability").select("*").eq("reporter_id", leave.reporter_id).eq("week_start_date", weekStart).maybeSingle()
           if (avail) {
@@ -114,56 +108,31 @@ export default function Chatbot() {
 
       if (action.type === "assign_story") {
         await supabase.from("assignments").update({ is_active: false }).eq("story_id", action.story_id)
-        await supabase.from("assignments").insert({
-          story_id: action.story_id,
-          reporter_id: action.reporter_id,
-          is_active: true,
-          is_override: false
-        })
+        await supabase.from("assignments").insert({ story_id: action.story_id, reporter_id: action.reporter_id, is_active: true, is_override: false })
         await supabase.from("stories").update({ status: "assigned" }).eq("id", action.story_id)
         return "Story assigned successfully!"
       }
 
       if (action.type === "override_assign_story") {
         await supabase.from("assignments").update({ is_active: false }).eq("story_id", action.story_id)
-        await supabase.from("assignments").insert({
-          story_id: action.story_id,
-          reporter_id: action.reporter_id,
-          is_active: true,
-          is_override: true,
-          override_reason: action.reason,
-          override_status: "pending"
-        })
+        await supabase.from("assignments").insert({ story_id: action.story_id, reporter_id: action.reporter_id, is_active: true, is_override: true, override_reason: action.reason, override_status: "pending" })
         await supabase.from("stories").update({ status: "assigned" }).eq("id", action.story_id)
         return "Story assigned with override! Reporter will be notified to accept or reject with a reason."
       }
 
       if (action.type === "accept_override") {
-        await supabase.from("assignments").update({
-          override_status: "accepted",
-          override_response: action.response,
-          override_responded_at: new Date().toISOString()
-        }).eq("id", action.assignment_id)
+        await supabase.from("assignments").update({ override_status: "accepted", override_response: action.response, override_responded_at: new Date().toISOString() }).eq("id", action.assignment_id)
         return "Assignment accepted! You have committed to covering this story."
       }
 
       if (action.type === "reject_override") {
-        await supabase.from("assignments").update({
-          override_status: "rejected",
-          override_response: action.response,
-          override_responded_at: new Date().toISOString()
-        }).eq("id", action.assignment_id)
+        await supabase.from("assignments").update({ override_status: "rejected", override_response: action.response, override_responded_at: new Date().toISOString() }).eq("id", action.assignment_id)
         await supabase.from("stories").update({ status: "unassigned" }).eq("id", action.story_id)
         return "Assignment rejected. Story moved back to unassigned. Editor will be notified."
       }
 
       if (action.type === "publish_story") {
-        await supabase.from("stories").update({
-          status: "published",
-          published_at: new Date().toISOString(),
-          editor_feedback: action.feedback || null,
-          feedback_at: action.feedback ? new Date().toISOString() : null
-        }).eq("id", action.story_id)
+        await supabase.from("stories").update({ status: "published", published_at: new Date().toISOString(), editor_feedback: action.feedback || null, feedback_at: action.feedback ? new Date().toISOString() : null }).eq("id", action.story_id)
         return "Story published!" + (action.feedback ? " Feedback sent to reporter." : "")
       }
 
@@ -173,22 +142,13 @@ export default function Chatbot() {
       }
 
       if (action.type === "file_leave") {
-        await supabase.from("leave_requests").insert({
-          reporter_id: reporterId,
-          leave_date: action.leave_date,
-          leave_type: action.leave_type || "planned",
-          is_immediate: action.leave_type === "sick" || action.leave_type === "emergency",
-          notes: action.notes || "",
-          status: "pending"
-        })
+        await supabase.from("leave_requests").insert({ reporter_id: reporterId, leave_date: action.leave_date, leave_type: action.leave_type || "planned", is_immediate: action.leave_type === "sick" || action.leave_type === "emergency", notes: action.notes || "", status: "pending" })
         return "Leave request filed for " + action.leave_date + " (" + (action.leave_type || "planned") + "). Waiting for editor approval."
       }
 
       if (action.type === "update_availability") {
-        const d = new Date()
-        const day = d.getDay()
-        const diff = d.getDate() - day + (day === 0 ? -6 : 1)
-        d.setDate(diff)
+        const d = new Date(); const day = d.getDay()
+        const diff = d.getDate() - day + (day === 0 ? -6 : 1); d.setDate(diff)
         const weekStart = d.toISOString().split("T")[0]
         const { data: existing } = await supabase.from("availability").select("*").eq("reporter_id", reporterId).eq("week_start_date", weekStart).maybeSingle()
         if (existing) {
@@ -211,17 +171,13 @@ export default function Chatbot() {
     cleaned = cleaned.replace(/,\s*\}/g, '}')
     cleaned = cleaned.replace(/,\s*\]/g, ']')
     cleaned = cleaned.replace(/^\{\{/, '{')
-
     try {
       return JSON.parse(cleaned)
     } catch (e) {
       const jsonMatch = cleaned.match(/\{[\s\S]*\}/)
       if (jsonMatch) {
-        try {
-          return JSON.parse(jsonMatch[0])
-        } catch (e2) {
-          return null
-        }
+        try { return JSON.parse(jsonMatch[0]) }
+        catch (e2) { return null }
       }
       return null
     }
@@ -238,8 +194,6 @@ export default function Chatbot() {
       const dbContext = await getDBContext()
       const today = new Date().toISOString().split("T")[0]
 
-      // MODIFIED: Editor prompt — asks for missing fields before executing
-      // MODIFIED: Reporter prompt — strictly forbidden from editor actions
       const systemPrompt = role === "editor"
         ? `You are an AI assistant for a Newsroom OS portal helping an EDITOR.
 Today is ${today}.
@@ -262,7 +216,7 @@ You can perform these actions by returning JSON:
 FIELD VALIDATION RULES:
 - For create_story: ALWAYS ask for headline first, then deadline, then category, then urgency one by one if not provided
 - For assign_story: ALWAYS ask which story and which reporter if not specified
-- NEVER create or assign with placeholder or default values like "New Story" or "2026-05-25"
+- NEVER create or assign with placeholder or default values
 - NEVER assume any field — always ask the user
 
 CRITICAL JSON RULES:
@@ -294,11 +248,11 @@ IMPORTANT:
 - If there are pending override assignments (is_override=true, override_status=pending), immediately inform the reporter and ask them to accept or reject with a reason
 
 You can ONLY perform these actions for reporters:
-1. Start working on assigned story: {"action": {"type": "start_working", "story_id": "..."}, "message": "..."}
-2. File leave request: {"action": {"type": "file_leave", "leave_date": "YYYY-MM-DD", "leave_type": "planned/sick/emergency", "notes": "..."}, "message": "..."}
+1. Start working: {"action": {"type": "start_working", "story_id": "..."}, "message": "..."}
+2. File leave: {"action": {"type": "file_leave", "leave_date": "YYYY-MM-DD", "leave_type": "planned/sick/emergency", "notes": "..."}, "message": "..."}
 3. Update availability: {"action": {"type": "update_availability", "days": ["Mon","Tue","Wed","Thu","Fri"]}, "message": "..."}
-4. Accept override assignment: {"action": {"type": "accept_override", "assignment_id": "...", "response": "..."}, "message": "..."}
-5. Reject override assignment: {"action": {"type": "reject_override", "assignment_id": "...", "story_id": "...", "response": "..."}, "message": "..."}
+4. Accept override: {"action": {"type": "accept_override", "assignment_id": "...", "response": "..."}, "message": "..."}
+5. Reject override: {"action": {"type": "reject_override", "assignment_id": "...", "story_id": "...", "response": "..."}, "message": "..."}
 
 FIELD VALIDATION RULES:
 - For file_leave: ALWAYS ask for leave date and type if not provided
@@ -330,10 +284,7 @@ CRITICAL JSON RULES:
           },
           body: JSON.stringify({
             model: "llama-3.3-70b-versatile",
-            messages: [
-              { role: "system", content: systemPrompt },
-              ...conversationHistory
-            ],
+            messages: [{ role: "system", content: systemPrompt }, ...conversationHistory],
             temperature: 0.1,
             max_tokens: 1000
           })
@@ -370,61 +321,214 @@ CRITICAL JSON RULES:
   }
 
   return (
-    <div style={{ position: "fixed", bottom: "24px", right: "24px", zIndex: 9999, fontFamily: "DM Mono, Courier New, monospace" }}>
+    <div style={{
+      position: "fixed",
+      bottom: "24px",
+      right: "24px",
+      zIndex: 9999,
+      fontFamily: '"Inter", "DM Mono", "Courier New", monospace'
+    }}>
       {open && (
-        <div style={{ width: "380px", height: "520px", background: "#0d0d14", border: "1px solid rgba(255,180,0,0.3)", borderRadius: "12px", display: "flex", flexDirection: "column", marginBottom: "12px", boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }}>
-          <div style={{ padding: "16px 20px", borderBottom: "1px solid rgba(255,255,255,0.06)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div style={{
+          width: "400px",
+          height: "540px",
+          background: t.bgCard,
+          border: `1px solid ${t.accentBorder}`,
+          borderRadius: "14px",
+          display: "flex",
+          flexDirection: "column",
+          marginBottom: "12px",
+          boxShadow: t.shadow,
+          overflow: "hidden"
+        }}>
+
+          {/* Header */}
+          <div style={{
+            padding: "16px 20px",
+            borderBottom: `1px solid ${t.borderCard}`,
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            background: t.accentBg
+          }}>
             <div>
-              <div style={{ color: "#ffb400", fontSize: "13px", fontWeight: "700", letterSpacing: "1px" }}>NEWSROOM AI</div>
-              <div style={{ color: "#555", fontSize: "10px" }}>{role === "editor" ? "Editor Assistant" : "Reporter Assistant"}</div>
+              <div style={{
+                color: t.accent,
+                fontSize: "14px",
+                fontWeight: "700",
+                letterSpacing: "1px"
+              }}>
+                NEWSROOM AI
+              </div>
+              <div style={{
+                color: t.textMuted,
+                fontSize: "11px",
+                fontWeight: "500",
+                marginTop: "2px"
+              }}>
+                {role === "editor" ? "Editor Assistant" : "Reporter Assistant"}
+              </div>
             </div>
-            <button onClick={() => setOpen(false)} style={{ background: "none", border: "none", color: "#555", fontSize: "18px", cursor: "pointer" }}>X</button>
+            <button
+              onClick={() => setOpen(false)}
+              aria-label="Close chat"
+              style={{
+                background: t.bgInput,
+                border: `1px solid ${t.borderCard}`,
+                color: t.textMuted,
+                fontSize: "16px",
+                cursor: "pointer",
+                borderRadius: "6px",
+                width: "32px",
+                height: "32px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontFamily: "inherit"
+              }}>
+              X
+            </button>
           </div>
 
-          <div style={{ flex: 1, overflowY: "auto", padding: "16px", display: "flex", flexDirection: "column", gap: "12px" }}>
+          {/* Messages */}
+          <div style={{
+            flex: 1,
+            overflowY: "auto",
+            padding: "16px",
+            display: "flex",
+            flexDirection: "column",
+            gap: "12px",
+            background: t.bgPage
+          }}>
             {messages.map((msg, i) => (
-              <div key={i} style={{ display: "flex", justifyContent: msg.role === "user" ? "flex-end" : "flex-start" }}>
+              <div
+                key={i}
+                style={{
+                  display: "flex",
+                  justifyContent: msg.role === "user" ? "flex-end" : "flex-start"
+                }}>
                 <div style={{
-                  maxWidth: "80%", padding: "10px 14px",
-                  borderRadius: msg.role === "user" ? "12px 12px 2px 12px" : "12px 12px 12px 2px",
-                  background: msg.role === "user" ? "rgba(255,180,0,0.15)" : "rgba(255,255,255,0.04)",
-                  border: msg.role === "user" ? "1px solid rgba(255,180,0,0.3)" : "1px solid rgba(255,255,255,0.06)",
-                  color: msg.role === "user" ? "#ffb400" : "#ddd",
-                  fontSize: "12px", lineHeight: 1.6, whiteSpace: "pre-wrap"
+                  maxWidth: "82%",
+                  padding: "10px 14px",
+                  borderRadius: msg.role === "user" ? "14px 14px 4px 14px" : "14px 14px 14px 4px",
+                  background: msg.role === "user" ? t.accentBg : t.bgCard,
+                  border: `1px solid ${msg.role === "user" ? t.accentBorder : t.borderCard}`,
+                  color: msg.role === "user" ? t.accent : t.textPrimary,
+                  fontSize: "13px",
+                  lineHeight: 1.6,
+                  whiteSpace: "pre-wrap",
+                  fontWeight: msg.role === "user" ? "500" : "400",
+                  boxShadow: t.shadowCard
                 }}>
                   {msg.text}
                 </div>
               </div>
             ))}
+
             {loading && (
               <div style={{ display: "flex", justifyContent: "flex-start" }}>
-                <div style={{ padding: "10px 14px", borderRadius: "12px 12px 12px 2px", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)", color: "#555", fontSize: "12px" }}>
+                <div style={{
+                  padding: "10px 16px",
+                  borderRadius: "14px 14px 14px 4px",
+                  background: t.bgCard,
+                  border: `1px solid ${t.borderCard}`,
+                  color: t.textMuted,
+                  fontSize: "13px",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "6px"
+                }}>
+                  <div style={{
+                    width: "6px", height: "6px",
+                    borderRadius: "50%",
+                    background: t.accent,
+                    animation: "pulse 1s infinite"
+                  }} />
                   Thinking...
+                  <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}`}</style>
                 </div>
               </div>
             )}
             <div ref={bottomRef} />
           </div>
 
-          <div style={{ padding: "12px 16px", borderTop: "1px solid rgba(255,255,255,0.06)", display: "flex", gap: "8px" }}>
+          {/* Input */}
+          <div style={{
+            padding: "12px 16px",
+            borderTop: `1px solid ${t.borderCard}`,
+            display: "flex",
+            gap: "8px",
+            background: t.bgCard
+          }}>
             <input
               value={input}
               onChange={e => setInput(e.target.value)}
               onKeyDown={e => e.key === "Enter" && !e.shiftKey && sendMessage()}
               placeholder="Type a message..."
-              style={{ flex: 1, padding: "10px 12px", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "6px", color: "#fff", fontSize: "12px", outline: "none", fontFamily: "inherit" }}
+              aria-label="Chat message input"
+              style={{
+                flex: 1,
+                padding: "10px 14px",
+                background: t.bgInput,
+                border: `1px solid ${t.borderInput}`,
+                borderRadius: "8px",
+                color: t.textPrimary,
+                fontSize: "13px",
+                outline: "none",
+                fontFamily: "inherit",
+                transition: "border-color 0.15s"
+              }}
+              onFocus={e => e.target.style.borderColor = t.accent}
+              onBlur={e => e.target.style.borderColor = t.borderInput}
             />
-            <button onClick={sendMessage} disabled={loading}
-              style={{ padding: "10px 16px", background: "#ffb400", border: "none", borderRadius: "6px", color: "#0a0a0f", fontSize: "12px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit", opacity: loading ? 0.6 : 1 }}>
+            <button
+              onClick={sendMessage}
+              disabled={loading}
+              aria-label="Send message"
+              style={{
+                padding: "10px 18px",
+                background: loading ? t.textMuted : t.accent,
+                border: "none",
+                borderRadius: "8px",
+                color: t.accentText,
+                fontSize: "12px",
+                fontWeight: "700",
+                letterSpacing: "0.5px",
+                cursor: loading ? "not-allowed" : "pointer",
+                fontFamily: "inherit",
+                opacity: loading ? 0.6 : 1,
+                transition: "all 0.15s"
+              }}>
               SEND
             </button>
           </div>
         </div>
       )}
 
-      <button onClick={() => setOpen(!open)}
-        style={{ width: "56px", height: "56px", borderRadius: "50%", background: "#ffb400", border: "none", cursor: "pointer", fontSize: "24px", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 4px 20px rgba(255,180,0,0.4)", marginLeft: "auto" }}>
-        {open ? "X" : "AI"}
+      {/* Toggle button */}
+      <button
+        onClick={() => setOpen(!open)}
+        aria-label={open ? "Close AI assistant" : "Open AI assistant"}
+        aria-expanded={open}
+        style={{
+          width: "56px",
+          height: "56px",
+          borderRadius: "50%",
+          background: t.accent,
+          border: `2px solid ${t.accentBorder}`,
+          cursor: "pointer",
+          fontSize: "20px",
+          fontWeight: "700",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          boxShadow: `0 4px 20px ${t.accent}40`,
+          marginLeft: "auto",
+          color: t.accentText,
+          fontFamily: "inherit",
+          transition: "all 0.15s"
+        }}>
+        {open ? "✕" : "AI"}
       </button>
     </div>
   )
