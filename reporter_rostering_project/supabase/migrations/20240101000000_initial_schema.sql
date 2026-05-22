@@ -108,6 +108,20 @@ CREATE TABLE IF NOT EXISTS notification_log (
 );
 
 -- ================================================
+-- ADDED: TABLE: holidays
+-- Stores default public holidays on which all
+-- reporters are unavailable by default
+-- ================================================
+CREATE TABLE IF NOT EXISTS holidays (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  date date NOT NULL UNIQUE,
+  name text NOT NULL,
+  is_recurring boolean DEFAULT true,
+  created_at timestamptz DEFAULT now()
+);
+-- END ADDED
+
+-- ================================================
 -- DISABLE RLS (local dev)
 -- ================================================
 ALTER TABLE reporters DISABLE ROW LEVEL SECURITY;
@@ -117,6 +131,7 @@ ALTER TABLE availability DISABLE ROW LEVEL SECURITY;
 ALTER TABLE leave_requests DISABLE ROW LEVEL SECURITY;
 ALTER TABLE profiles DISABLE ROW LEVEL SECURITY;
 ALTER TABLE notification_log DISABLE ROW LEVEL SECURITY;
+ALTER TABLE holidays DISABLE ROW LEVEL SECURITY; -- ADDED
 
 -- ================================================
 -- STORAGE BUCKET
@@ -148,6 +163,30 @@ DROP POLICY IF EXISTS "open_access" ON storage.objects;
 CREATE POLICY "open_access" ON storage.objects
 FOR ALL USING (true)
 WITH CHECK (true);
+-- END ADDED
+
+-- ================================================
+-- ADDED: Default Indian holidays for 2026
+-- Inserted into holidays table as seed data
+-- ================================================
+INSERT INTO holidays (date, name, is_recurring) VALUES
+  ('2026-01-01', 'New Year Day', true),
+  ('2026-01-26', 'Republic Day', true),
+  ('2026-03-25', 'Holi', true),
+  ('2026-04-03', 'Good Friday', true),
+  ('2026-04-14', 'Dr. Ambedkar Jayanti', true),
+  ('2026-04-30', 'Eid ul-Fitr', true),
+  ('2026-05-25', 'Buddha Purnima', true),
+  ('2026-07-07', 'Eid ul-Adha', true),
+  ('2026-08-15', 'Independence Day', true),
+  ('2026-08-28', 'Janmashtami', true),
+  ('2026-09-17', 'Ganesh Chaturthi', true),
+  ('2026-10-02', 'Gandhi Jayanti', true),
+  ('2026-10-20', 'Dussehra', true),
+  ('2026-11-08', 'Diwali', true),
+  ('2026-11-24', 'Guru Nanak Jayanti', true),
+  ('2026-12-25', 'Christmas', true)
+ON CONFLICT (date) DO NOTHING;
 -- END ADDED
 
 -- ================================================

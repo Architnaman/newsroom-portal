@@ -53,7 +53,23 @@ export default function Chatbot() {
     }
   }
 
+  // ADDED: Role-based action guard — prevents reporter from executing editor actions
+  function isActionAllowedForRole(actionType: string): boolean {
+    const editorOnlyActions = ["create_story", "assign_story", "override_assign_story", "approve_leave", "reject_leave", "publish_story"]
+    const reporterOnlyActions = ["start_working", "file_leave", "update_availability", "accept_override", "reject_override"]
+
+    if (role === "editor" && editorOnlyActions.includes(actionType)) return true
+    if (role === "reporter" && reporterOnlyActions.includes(actionType)) return true
+    return false
+  }
+
   async function executeAction(action: any) {
+    // ADDED: Block action if not allowed for current role
+    if (!isActionAllowedForRole(action.type)) {
+      return "Sorry, you do not have permission to perform this action. " +
+        (role === "reporter" ? "Only editors can create stories, assign reporters and publish stories." : "")
+    }
+
     try {
       if (action.type === "create_story") {
         const { data, error } = await supabase.from("stories").insert({
@@ -189,24 +205,16 @@ export default function Chatbot() {
     }
   }
 
-  // MODIFIED: More robust JSON parsing to handle malformed AI responses
   function extractAndParseJSON(text: string) {
-    // Clean markdown code blocks
     let cleaned = text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim()
-
-    // Fix common AI JSON mistakes
-    // 1. Fix double closing braces before message: }}, "message" -> }, "message"
     cleaned = cleaned.replace(/\}\}\s*,\s*"message"/g, '}, "message"')
-    // 2. Fix trailing commas before closing braces
     cleaned = cleaned.replace(/,\s*\}/g, '}')
     cleaned = cleaned.replace(/,\s*\]/g, ']')
-    // 3. Fix extra opening braces
     cleaned = cleaned.replace(/^\{\{/, '{')
 
     try {
       return JSON.parse(cleaned)
     } catch (e) {
-      // Try to find JSON object in text using regex
       const jsonMatch = cleaned.match(/\{[\s\S]*\}/)
       if (jsonMatch) {
         try {
@@ -230,7 +238,8 @@ export default function Chatbot() {
       const dbContext = await getDBContext()
       const today = new Date().toISOString().split("T")[0]
 
-      // MODIFIED: Stricter system prompts to prevent malformed JSON
+      // MODIFIED: Editor prompt — asks for missing fields before executing
+      // MODIFIED: Reporter prompt — strictly forbidden from editor actions
       const systemPrompt = role === "editor"
         ? `You are an AI assistant for a Newsroom OS portal helping an EDITOR.
 Today is ${today}.
@@ -250,6 +259,12 @@ You can perform these actions by returning JSON:
 5. Reject leave: {"action": {"type": "reject_leave", "leave_id": "...", "reason": "..."}, "message": "..."}
 6. Publish story: {"action": {"type": "publish_story", "story_id": "...", "feedback": "optional"}, "message": "..."}
 
+FIELD VALIDATION RULES:
+- For create_story: ALWAYS ask for headline first, then deadline, then category, then urgency one by one if not provided
+- For assign_story: ALWAYS ask which story and which reporter if not specified
+- NEVER create or assign with placeholder or default values like "New Story" or "2026-05-25"
+- NEVER assume any field — always ask the user
+
 CRITICAL JSON RULES:
 - Return ONLY a single valid JSON object with exactly two keys: "action" and "message"
 - The format MUST be: {"action": {...}, "message": "..."}
@@ -258,21 +273,37 @@ CRITICAL JSON RULES:
 - NEVER wrap in markdown code blocks
 - When asking questions return ONLY plain text with no JSON
 - Be friendly and conversational`
+
         : `You are an AI assistant for a Newsroom OS portal helping a REPORTER.
 Today is ${today}.
 Reporter ID: ${reporterId}
 Database context: ${JSON.stringify(dbContext)}
 
+YOU ARE HELPING A REPORTER - NOT AN EDITOR.
+REPORTERS CANNOT CREATE STORIES - STORIES ARE CREATED BY EDITORS ONLY.
+REPORTERS CANNOT ASSIGN STORIES - ONLY EDITORS CAN ASSIGN.
+REPORTERS CANNOT PUBLISH STORIES - ONLY EDITORS CAN PUBLISH.
+REPORTERS CANNOT APPROVE OR REJECT LEAVES OF OTHERS.
+
+If reporter asks to create a story say: "Only editors can create stories. Please contact your editor."
+If reporter asks to assign a story say: "Only editors can assign stories."
+If reporter asks to publish a story say: "Only editors can publish stories."
+
 IMPORTANT:
 - Check overrideAssignments in context
-- If there are pending override assignments, immediately inform the reporter and ask them to accept or reject with a reason
+- If there are pending override assignments (is_override=true, override_status=pending), immediately inform the reporter and ask them to accept or reject with a reason
 
-You can perform these actions by returning JSON:
-1. Start working: {"action": {"type": "start_working", "story_id": "..."}, "message": "..."}
-2. File leave: {"action": {"type": "file_leave", "leave_date": "YYYY-MM-DD", "leave_type": "planned/sick/emergency", "notes": "..."}, "message": "..."}
+You can ONLY perform these actions for reporters:
+1. Start working on assigned story: {"action": {"type": "start_working", "story_id": "..."}, "message": "..."}
+2. File leave request: {"action": {"type": "file_leave", "leave_date": "YYYY-MM-DD", "leave_type": "planned/sick/emergency", "notes": "..."}, "message": "..."}
 3. Update availability: {"action": {"type": "update_availability", "days": ["Mon","Tue","Wed","Thu","Fri"]}, "message": "..."}
-4. Accept override: {"action": {"type": "accept_override", "assignment_id": "...", "response": "..."}, "message": "..."}
-5. Reject override: {"action": {"type": "reject_override", "assignment_id": "...", "story_id": "...", "response": "..."}, "message": "..."}
+4. Accept override assignment: {"action": {"type": "accept_override", "assignment_id": "...", "response": "..."}, "message": "..."}
+5. Reject override assignment: {"action": {"type": "reject_override", "assignment_id": "...", "story_id": "...", "response": "..."}, "message": "..."}
+
+FIELD VALIDATION RULES:
+- For file_leave: ALWAYS ask for leave date and type if not provided
+- For start_working: ALWAYS ask which story if multiple are assigned
+- NEVER assume any field — always ask the user
 
 CRITICAL JSON RULES:
 - Return ONLY a single valid JSON object with exactly two keys: "action" and "message"
@@ -303,7 +334,7 @@ CRITICAL JSON RULES:
               { role: "system", content: systemPrompt },
               ...conversationHistory
             ],
-            temperature: 0.1, // MODIFIED: Lower temperature for more consistent JSON output
+            temperature: 0.1,
             max_tokens: 1000
           })
         }
@@ -321,7 +352,6 @@ CRITICAL JSON RULES:
       const rawText = data.choices?.[0]?.message?.content || "Sorry I could not process that."
       let assistantMessage = rawText
 
-      // MODIFIED: Use robust JSON parser instead of direct JSON.parse
       const parsed = extractAndParseJSON(rawText)
       if (parsed && parsed.action) {
         const actionResult = await executeAction(parsed.action)
