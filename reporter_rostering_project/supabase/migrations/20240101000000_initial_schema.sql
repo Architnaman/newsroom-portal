@@ -231,3 +231,30 @@ CREATE TRIGGER trigger_update_complexity
   AFTER UPDATE ON stories
   FOR EACH ROW
   EXECUTE FUNCTION auto_update_complexity();
+-- ================================================
+-- LEAVE FILING REQUESTS TABLE
+-- Reporter can request editor to file leave on their behalf
+-- ================================================
+CREATE TABLE IF NOT EXISTS leave_filing_requests (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  reporter_id uuid REFERENCES reporters(id) ON DELETE CASCADE,
+  requested_date date NOT NULL,
+  leave_type text DEFAULT 'planned' CHECK (leave_type IN ('planned', 'sick', 'emergency')),
+  reason text NOT NULL,
+  status text DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
+  editor_note text,
+  created_at timestamptz DEFAULT now()
+);
+
+ALTER TABLE leave_filing_requests DISABLE ROW LEVEL SECURITY;
+GRANT ALL ON leave_filing_requests TO anon;
+GRANT ALL ON leave_filing_requests TO authenticated;
+
+-- ================================================
+-- ADDED COLUMNS TO LEAVE_REQUESTS
+-- Track editor-filed leaves
+-- ================================================
+ALTER TABLE leave_requests ADD COLUMN IF NOT EXISTS filed_by_editor boolean DEFAULT false;
+ALTER TABLE leave_requests ADD COLUMN IF NOT EXISTS editor_note text;
+ALTER TABLE leave_requests ADD COLUMN IF NOT EXISTS acknowledged_at timestamptz;
+ALTER TABLE leave_requests ADD COLUMN IF NOT EXISTS reject_reason text;
