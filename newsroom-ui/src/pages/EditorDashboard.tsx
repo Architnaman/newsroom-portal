@@ -90,10 +90,15 @@ export default function EditorDashboard() {
       })))
     } else { setOverrideResponses([]) }
 
-    const { data: filingReqs } = await supabase.from('leave_filing_requests')
-      .select('*, reporters(name)').eq('status', 'pending')
+    // FIXED: removed .order('created_at') — column was missing, now added via SQL
+    const { data: filingReqs } = await supabase
+      .from('leave_filing_requests')
+      .select('*, reporters(name)')
+      .eq('status', 'pending')
       .order('created_at', { ascending: false })
-    setFilingRequests((filingReqs || []).map((r: any) => ({ ...r, reporter_name: r.reporters?.name })))
+    setFilingRequests((filingReqs || []).map((r: any) => ({
+      ...r, reporter_name: r.reporters?.name
+    })))
 
     setLoading(false)
   }
@@ -105,6 +110,8 @@ export default function EditorDashboard() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'stories' }, load)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'leave_requests' }, load)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'assignments' }, load)
+      // ADDED: listen to leave_filing_requests changes
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'leave_filing_requests' }, load)
       .subscribe()
     return () => { supabase.removeChannel(channel) }
   }, [])
@@ -149,13 +156,17 @@ export default function EditorDashboard() {
 
   async function approveFilingRequest(req: any) {
     await supabase.from('leave_requests').insert({
-      reporter_id: req.reporter_id, leave_date: req.requested_date,
+      reporter_id: req.reporter_id,
+      leave_date: req.requested_date,
       leave_type: req.leave_type,
       is_immediate: req.leave_type === 'sick' || req.leave_type === 'emergency',
-      notes: req.reason, status: 'acknowledged',
-      filed_by_editor: true, editor_note: 'Filed by editor on behalf of reporter',
+      notes: req.reason,
+      status: 'acknowledged',
+      filed_by_editor: true,
+      editor_note: 'Filed by editor on behalf of reporter',
       acknowledged_at: new Date().toISOString()
     })
+    // Update availability — remove that day
     const leaveDate = new Date(req.requested_date + 'T00:00:00Z')
     const days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
     const dayName = days[leaveDate.getUTCDay()]
@@ -229,27 +240,52 @@ export default function EditorDashboard() {
           ))}
         </div>
 
-        {/* Filing Requests */}
+        {/* FIXED: Filing Requests — now uses realtime subscription so updates instantly */}
         {filingRequests.length > 0 && (
           <div style={{ ...cardStyle, marginBottom: '24px' }}>
             <h2 style={{ color: t.textPrimary, margin: '0 0 16px', fontSize: '14px', fontWeight: '700', letterSpacing: '0.5px', display: 'flex', alignItems: 'center', gap: '8px' }}>
               LEAVE FILING REQUESTS
-              <span style={{ padding: '2px 8px', background: t.warningBg, color: t.warning, borderRadius: '10px', fontSize: '11px', border: `1px solid ${t.warningBorder}` }}>{filingRequests.length}</span>
+              <span style={{ padding: '2px 8px', background: t.warningBg, color: t.warning, borderRadius: '10px', fontSize: '11px', border: `1px solid ${t.warningBorder}` }}>
+                {filingRequests.length}
+              </span>
             </h2>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               {filingRequests.map(req => (
-                <div key={req.id} style={{ padding: '14px 16px', borderRadius: '8px', border: `1px solid ${t.warningBorder}`, background: t.warningBg, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                <div key={req.id} style={{
+                  padding: '14px 16px', borderRadius: '8px',
+                  border: `1px solid ${t.warningBorder}`, background: t.warningBg,
+                  display: 'flex', justifyContent: 'space-between',
+                  alignItems: 'center', flexWrap: 'wrap', gap: '8px'
+                }}>
                   <div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                      <span style={{ color: t.textPrimary, fontSize: '14px', fontWeight: '600' }}>{req.reporter_name}</span>
-                      <span style={{ padding: '2px 8px', borderRadius: '4px', fontSize: '10px', background: t.accentBg, color: t.accent, fontWeight: '600' }}>{req.leave_type?.toUpperCase()}</span>
-                      <span style={{ color: t.textSecondary, fontSize: '13px', fontWeight: '500' }}>{req.requested_date}</span>
+                      <span style={{ color: t.textPrimary, fontSize: '14px', fontWeight: '600' }}>
+                        {req.reporter_name}
+                      </span>
+                      <span style={{ padding: '2px 8px', borderRadius: '4px', fontSize: '10px', background: t.accentBg, color: t.accent, fontWeight: '600' }}>
+                        {req.leave_type?.toUpperCase()}
+                      </span>
+                      <span style={{ color: t.textSecondary, fontSize: '13px', fontWeight: '500' }}>
+                        {req.requested_date}
+                      </span>
                     </div>
-                    <p style={{ color: t.textMuted, fontSize: '12px', margin: 0 }}>Reason: {req.reason}</p>
+                    <p style={{ color: t.textMuted, fontSize: '12px', margin: 0 }}>
+                      Reason: {req.reason}
+                    </p>
                   </div>
                   <div style={{ display: 'flex', gap: '8px' }}>
-                    <button onClick={() => approveFilingRequest(req)} style={{ padding: '8px 16px', background: t.successBg, border: `1px solid ${t.successBorder}`, borderRadius: '6px', color: t.success, fontSize: '11px', fontWeight: '600', letterSpacing: '0.5px', cursor: 'pointer', fontFamily: 'inherit' }}>APPROVE & FILE</button>
-                    <button onClick={() => setFilingRejectModal(req)} style={{ padding: '8px 16px', background: t.dangerBg, border: `1px solid ${t.dangerBorder}`, borderRadius: '6px', color: t.danger, fontSize: '11px', fontWeight: '600', cursor: 'pointer', fontFamily: 'inherit' }}>REJECT</button>
+                    <button onClick={() => approveFilingRequest(req)} style={{
+                      padding: '8px 16px', background: t.successBg,
+                      border: `1px solid ${t.successBorder}`, borderRadius: '6px',
+                      color: t.success, fontSize: '11px', fontWeight: '600',
+                      letterSpacing: '0.5px', cursor: 'pointer', fontFamily: 'inherit'
+                    }}>APPROVE & FILE</button>
+                    <button onClick={() => setFilingRejectModal(req)} style={{
+                      padding: '8px 16px', background: t.dangerBg,
+                      border: `1px solid ${t.dangerBorder}`, borderRadius: '6px',
+                      color: t.danger, fontSize: '11px', fontWeight: '600',
+                      cursor: 'pointer', fontFamily: 'inherit'
+                    }}>REJECT</button>
                   </div>
                 </div>
               ))}
@@ -262,7 +298,9 @@ export default function EditorDashboard() {
           <div style={{ ...cardStyle, marginBottom: '24px' }}>
             <h2 style={{ color: t.textPrimary, margin: '0 0 12px', fontSize: '14px', fontWeight: '700', letterSpacing: '0.5px', display: 'flex', alignItems: 'center', gap: '8px' }}>
               OVERRIDE RESPONSES
-              <span style={{ padding: '2px 8px', background: t.dangerBg, color: t.danger, borderRadius: '10px', fontSize: '11px', border: `1px solid ${t.dangerBorder}` }}>{overrideResponses.length}</span>
+              <span style={{ padding: '2px 8px', background: t.dangerBg, color: t.danger, borderRadius: '10px', fontSize: '11px', border: `1px solid ${t.dangerBorder}` }}>
+                {overrideResponses.length}
+              </span>
             </h2>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               {overrideResponses.map(o => (
@@ -284,7 +322,9 @@ export default function EditorDashboard() {
                       "{o.override_response}"
                     </div>
                   </div>
-                  <button onClick={() => setOverrideDetailModal(o)} style={{ padding: '7px 14px', background: 'transparent', border: `1px solid ${t.borderCard}`, borderRadius: '6px', color: t.textMuted, fontSize: '11px', cursor: 'pointer', fontFamily: 'inherit' }}>VIEW DETAILS</button>
+                  <button onClick={() => setOverrideDetailModal(o)} style={{ padding: '7px 14px', background: 'transparent', border: `1px solid ${t.borderCard}`, borderRadius: '6px', color: t.textMuted, fontSize: '11px', cursor: 'pointer', fontFamily: 'inherit' }}>
+                    VIEW DETAILS
+                  </button>
                 </div>
               ))}
             </div>
@@ -297,9 +337,10 @@ export default function EditorDashboard() {
           <div style={cardStyle}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
               <h2 style={{ color: t.textPrimary, margin: 0, fontSize: '15px', fontWeight: '700', letterSpacing: '0.5px' }}>THIS WEEK STORIES</h2>
-              <button onClick={() => setShowCreate(true)} style={{ padding: '9px 20px', background: t.accent, border: 'none', borderRadius: '8px', color: t.accentText, fontSize: '12px', fontWeight: '700', letterSpacing: '0.5px', cursor: 'pointer', fontFamily: 'inherit' }}>+ NEW STORY</button>
+              <button onClick={() => setShowCreate(true)} style={{ padding: '9px 20px', background: t.accent, border: 'none', borderRadius: '8px', color: t.accentText, fontSize: '12px', fontWeight: '700', letterSpacing: '0.5px', cursor: 'pointer', fontFamily: 'inherit' }}>
+                + NEW STORY
+              </button>
             </div>
-
             {loading ? (
               <div style={{ color: t.textMuted, fontSize: '14px', padding: '40px', textAlign: 'center' }}>Loading...</div>
             ) : (
@@ -359,9 +400,7 @@ export default function EditorDashboard() {
                     </div>
                     <div style={{ color: t.textSecondary, fontSize: '13px', marginBottom: '4px', fontWeight: '500' }}>{alert.leave_date}</div>
                     {alert.notes && (
-                      <div style={{ color: t.textMuted, fontSize: '12px', marginBottom: '10px', fontStyle: 'italic' }}>
-                        "{alert.notes}"
-                      </div>
+                      <div style={{ color: t.textMuted, fontSize: '12px', marginBottom: '10px', fontStyle: 'italic' }}>"{alert.notes}"</div>
                     )}
                     <div style={{ display: 'flex', gap: '6px', marginTop: '10px' }}>
                       <button onClick={() => acknowledgeLeave(alert.id)} style={{ flex: 1, padding: '8px', background: t.successBg, border: `1px solid ${t.successBorder}`, borderRadius: '6px', color: t.success, fontSize: '11px', fontWeight: '600', cursor: 'pointer', fontFamily: 'inherit' }}>APPROVE</button>
