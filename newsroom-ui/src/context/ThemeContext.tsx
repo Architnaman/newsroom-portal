@@ -2,13 +2,17 @@ import { createContext, useContext, useState, useEffect, ReactNode } from 'react
 
 type Theme = 'dark' | 'light'
 type FontSize = 'sm' | 'md' | 'lg' | 'xl'
+type Background = 'default' | 'blue' | 'purple' | 'green' | 'midnight' | 'ocean' | 'sunset' | 'forest'
 
 interface ThemeContextType {
   theme: Theme
   fontSize: FontSize
+  background: Background
   toggleTheme: () => void
   setFontSize: (s: FontSize) => void
+  setBackground: (b: Background) => void
   t: typeof darkTokens
+  bgMain: string
 }
 
 const darkTokens = {
@@ -91,29 +95,42 @@ const lightTokens = {
   scrollbarThumb: 'rgba(29,111,216,0.2)',
 }
 
-// MODIFIED: zoom map instead of fontSize map
+export const backgroundPresets: Record<Background, { label: string, value: string, preview: string }> = {
+  default:  { label: 'Default',   value: '',                                                                preview: '#eef4ff' },
+  blue:     { label: 'Deep Blue', value: 'linear-gradient(135deg, #0a0f2e 0%, #0d1b3e 50%, #0a0f1a 100%)', preview: '#0d1b3e' },
+  purple:   { label: 'Purple',    value: 'linear-gradient(135deg, #1a0a2e 0%, #2d1b4e 50%, #0a0f1a 100%)', preview: '#2d1b4e' },
+  green:    { label: 'Forest',    value: 'linear-gradient(135deg, #0a1f0a 0%, #0d2e1a 50%, #0a0f1a 100%)', preview: '#0d2e1a' },
+  midnight: { label: 'Midnight',  value: 'linear-gradient(135deg, #000000 0%, #0d0d0d 50%, #111111 100%)', preview: '#0d0d0d' },
+  ocean:    { label: 'Ocean',     value: 'linear-gradient(135deg, #001a2e 0%, #003d5c 50%, #0a1628 100%)', preview: '#003d5c' },
+  sunset:   { label: 'Sunset',    value: 'linear-gradient(135deg, #1a0a00 0%, #2e1a0a 50%, #1a0f0a 100%)', preview: '#2e1a0a' },
+  forest:   { label: 'Emerald',   value: 'linear-gradient(135deg, #001a1a 0%, #003333 50%, #001a2e 100%)', preview: '#003333' },
+}
+
 export const fontZoomMap: Record<FontSize, number> = {
-  sm: 0.85,
-  md: 1,
-  lg: 1.15,
-  xl: 1.3,
+  sm: 0.85, md: 1, lg: 1.15, xl: 1.3,
 }
 
 const ThemeContext = createContext<ThemeContextType>({
-  theme: 'dark',
+  theme: 'light',
   fontSize: 'md',
+  background: 'default',
   toggleTheme: () => {},
   setFontSize: () => {},
-  t: darkTokens,
+  setBackground: () => {},
+  t: lightTokens,
+  bgMain: lightTokens.bgPage,
 })
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [theme, setTheme] = useState<Theme>(() => {
-    return (localStorage.getItem('nr_theme') as Theme) || 'dark'
-  })
-  const [fontSize, setFontSizeState] = useState<FontSize>(() => {
-    return (localStorage.getItem('nr_fontsize') as FontSize) || 'md'
-  })
+  const [theme, setTheme] = useState<Theme>(() =>
+    (localStorage.getItem('nr_theme') as Theme) || 'light'
+  )
+  const [fontSize, setFontSizeState] = useState<FontSize>(() =>
+    (localStorage.getItem('nr_fontsize') as FontSize) || 'md'
+  )
+  const [background, setBackgroundState] = useState<Background>(() =>
+    (localStorage.getItem('nr_background') as Background) || 'default'
+  )
 
   const toggleTheme = () => {
     const next = theme === 'dark' ? 'light' : 'dark'
@@ -126,19 +143,33 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     localStorage.setItem('nr_fontsize', s)
   }
 
+  const setBackground = (b: Background) => {
+    setBackgroundState(b)
+    localStorage.setItem('nr_background', b)
+  }
+
   const t = theme === 'dark' ? darkTokens : lightTokens
 
-  // MODIFIED: Use data attribute for font size — zoom applied in App.tsx wrapper
+  const preset = backgroundPresets[background]
+  const bgMain = preset?.value || t.bgPage
+
   useEffect(() => {
     document.documentElement.setAttribute('data-fontsize', fontSize)
     document.documentElement.style.setProperty('--bg-page', t.bgPage)
     document.documentElement.style.setProperty('--text-primary', t.textPrimary)
-    document.body.style.background = t.bgPage
+    // FIXED: set CSS variable so App.tsx zoom wrapper can reference it
+    document.documentElement.style.setProperty('--bg-main', bgMain)
     document.body.style.color = t.textPrimary
-  }, [theme, fontSize])
+    document.body.style.margin = '0'
+    document.body.style.padding = '0'
+  }, [theme, fontSize, background])
 
   return (
-    <ThemeContext.Provider value={{ theme, fontSize, toggleTheme, setFontSize, t }}>
+    <ThemeContext.Provider value={{
+      theme, fontSize, background,
+      toggleTheme, setFontSize, setBackground,
+      t, bgMain
+    }}>
       {children}
     </ThemeContext.Provider>
   )

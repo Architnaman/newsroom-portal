@@ -3,9 +3,15 @@ import { supabase } from '../lib/supabase'
 import Navbar from '../components/Navbar'
 import AssignModal from '../components/AssignModal'
 import { useTheme } from '../context/ThemeContext'
+import { useCollapse } from '../hooks/useCollapse'
+import SectionCard from '../components/SectionCard'
 
 export default function EditorDashboard() {
   const { t } = useTheme()
+  const { toggle, isCollapsed } = useCollapse('editor-dashboard', [
+    'stats', 'filing-requests', 'override-responses', 'stories', 'leave-alerts'
+  ])
+
   const [stories, setStories] = useState<any[]>([])
   const [alerts, setAlerts] = useState<any[]>([])
   const [overrideResponses, setOverrideResponses] = useState<any[]>([])
@@ -90,7 +96,6 @@ export default function EditorDashboard() {
       })))
     } else { setOverrideResponses([]) }
 
-    // FIXED: removed .order('created_at') — column was missing, now added via SQL
     const { data: filingReqs } = await supabase
       .from('leave_filing_requests')
       .select('*, reporters(name)')
@@ -110,7 +115,6 @@ export default function EditorDashboard() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'stories' }, load)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'leave_requests' }, load)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'assignments' }, load)
-      // ADDED: listen to leave_filing_requests changes
       .on('postgres_changes', { event: '*', schema: 'public', table: 'leave_filing_requests' }, load)
       .subscribe()
     return () => { supabase.removeChannel(channel) }
@@ -166,7 +170,6 @@ export default function EditorDashboard() {
       editor_note: 'Filed by editor on behalf of reporter',
       acknowledged_at: new Date().toISOString()
     })
-    // Update availability — remove that day
     const leaveDate = new Date(req.requested_date + 'T00:00:00Z')
     const days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
     const dayName = days[leaveDate.getUTCDay()]
@@ -210,14 +213,6 @@ export default function EditorDashboard() {
   const weekStart = getCurrentWeekStart()
   const weekEnd = getCurrentWeekEnd()
 
-  const cardStyle: React.CSSProperties = {
-    background: t.bgCard,
-    border: `1px solid ${t.borderCard}`,
-    borderRadius: '10px',
-    padding: '20px',
-    boxShadow: t.shadowCard,
-  }
-
   return (
     <div style={{ minHeight: '100vh', background: t.bgPage, fontFamily: '"Inter", "DM Mono", sans-serif', color: t.textPrimary }}>
       <Navbar />
@@ -230,25 +225,35 @@ export default function EditorDashboard() {
           </span>
         </div>
 
-        {/* Stats */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '16px', marginBottom: '28px' }}>
-          {stats.map(s => (
-            <div key={s.label} style={{ ...cardStyle, display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              <div style={{ color: s.color, fontSize: '36px', fontWeight: '800', lineHeight: 1 }}>{s.value}</div>
-              <div style={{ color: t.textSecondary, fontSize: '12px', fontWeight: '600', letterSpacing: '0.5px' }}>{s.label.toUpperCase()}</div>
-            </div>
-          ))}
-        </div>
+        {/* Stats — collapsible */}
+        <SectionCard
+          title="THIS WEEK OVERVIEW"
+          isCollapsed={isCollapsed('stats')}
+          onToggle={() => toggle('stats')}
+          style={{ marginBottom: '20px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '16px' }}>
+            {stats.map(s => (
+              <div key={s.label} style={{
+                padding: '20px', borderRadius: '10px',
+                background: t.bgPage, border: `1px solid ${t.borderCard}`,
+                display: 'flex', flexDirection: 'column', gap: '8px'
+              }}>
+                <div style={{ color: s.color, fontSize: '36px', fontWeight: '800', lineHeight: 1 }}>{s.value}</div>
+                <div style={{ color: t.textSecondary, fontSize: '12px', fontWeight: '600', letterSpacing: '0.5px' }}>{s.label.toUpperCase()}</div>
+              </div>
+            ))}
+          </div>
+        </SectionCard>
 
-        {/* FIXED: Filing Requests — now uses realtime subscription so updates instantly */}
+        {/* Filing Requests — collapsible */}
         {filingRequests.length > 0 && (
-          <div style={{ ...cardStyle, marginBottom: '24px' }}>
-            <h2 style={{ color: t.textPrimary, margin: '0 0 16px', fontSize: '14px', fontWeight: '700', letterSpacing: '0.5px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              LEAVE FILING REQUESTS
-              <span style={{ padding: '2px 8px', background: t.warningBg, color: t.warning, borderRadius: '10px', fontSize: '11px', border: `1px solid ${t.warningBorder}` }}>
-                {filingRequests.length}
-              </span>
-            </h2>
+          <SectionCard
+            title="LEAVE FILING REQUESTS"
+            isCollapsed={isCollapsed('filing-requests')}
+            onToggle={() => toggle('filing-requests')}
+            badge={filingRequests.length}
+            badgeColor={t.warning}
+            style={{ marginBottom: '20px' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               {filingRequests.map(req => (
                 <div key={req.id} style={{
@@ -259,49 +264,31 @@ export default function EditorDashboard() {
                 }}>
                   <div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                      <span style={{ color: t.textPrimary, fontSize: '14px', fontWeight: '600' }}>
-                        {req.reporter_name}
-                      </span>
-                      <span style={{ padding: '2px 8px', borderRadius: '4px', fontSize: '10px', background: t.accentBg, color: t.accent, fontWeight: '600' }}>
-                        {req.leave_type?.toUpperCase()}
-                      </span>
-                      <span style={{ color: t.textSecondary, fontSize: '13px', fontWeight: '500' }}>
-                        {req.requested_date}
-                      </span>
+                      <span style={{ color: t.textPrimary, fontSize: '14px', fontWeight: '600' }}>{req.reporter_name}</span>
+                      <span style={{ padding: '2px 8px', borderRadius: '4px', fontSize: '10px', background: t.accentBg, color: t.accent, fontWeight: '600' }}>{req.leave_type?.toUpperCase()}</span>
+                      <span style={{ color: t.textSecondary, fontSize: '13px', fontWeight: '500' }}>{req.requested_date}</span>
                     </div>
-                    <p style={{ color: t.textMuted, fontSize: '12px', margin: 0 }}>
-                      Reason: {req.reason}
-                    </p>
+                    <p style={{ color: t.textMuted, fontSize: '12px', margin: 0 }}>Reason: {req.reason}</p>
                   </div>
                   <div style={{ display: 'flex', gap: '8px' }}>
-                    <button onClick={() => approveFilingRequest(req)} style={{
-                      padding: '8px 16px', background: t.successBg,
-                      border: `1px solid ${t.successBorder}`, borderRadius: '6px',
-                      color: t.success, fontSize: '11px', fontWeight: '600',
-                      letterSpacing: '0.5px', cursor: 'pointer', fontFamily: 'inherit'
-                    }}>APPROVE & FILE</button>
-                    <button onClick={() => setFilingRejectModal(req)} style={{
-                      padding: '8px 16px', background: t.dangerBg,
-                      border: `1px solid ${t.dangerBorder}`, borderRadius: '6px',
-                      color: t.danger, fontSize: '11px', fontWeight: '600',
-                      cursor: 'pointer', fontFamily: 'inherit'
-                    }}>REJECT</button>
+                    <button onClick={() => approveFilingRequest(req)} style={{ padding: '8px 16px', background: t.successBg, border: `1px solid ${t.successBorder}`, borderRadius: '6px', color: t.success, fontSize: '11px', fontWeight: '600', cursor: 'pointer', fontFamily: 'inherit' }}>APPROVE & FILE</button>
+                    <button onClick={() => setFilingRejectModal(req)} style={{ padding: '8px 16px', background: t.dangerBg, border: `1px solid ${t.dangerBorder}`, borderRadius: '6px', color: t.danger, fontSize: '11px', fontWeight: '600', cursor: 'pointer', fontFamily: 'inherit' }}>REJECT</button>
                   </div>
                 </div>
               ))}
             </div>
-          </div>
+          </SectionCard>
         )}
 
-        {/* Override Responses */}
+        {/* Override Responses — collapsible */}
         {overrideResponses.length > 0 && (
-          <div style={{ ...cardStyle, marginBottom: '24px' }}>
-            <h2 style={{ color: t.textPrimary, margin: '0 0 12px', fontSize: '14px', fontWeight: '700', letterSpacing: '0.5px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              OVERRIDE RESPONSES
-              <span style={{ padding: '2px 8px', background: t.dangerBg, color: t.danger, borderRadius: '10px', fontSize: '11px', border: `1px solid ${t.dangerBorder}` }}>
-                {overrideResponses.length}
-              </span>
-            </h2>
+          <SectionCard
+            title="OVERRIDE RESPONSES"
+            isCollapsed={isCollapsed('override-responses')}
+            onToggle={() => toggle('override-responses')}
+            badge={overrideResponses.length}
+            badgeColor={t.danger}
+            style={{ marginBottom: '20px' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               {overrideResponses.map(o => (
                 <div key={o.id} style={{
@@ -322,21 +309,24 @@ export default function EditorDashboard() {
                       "{o.override_response}"
                     </div>
                   </div>
-                  <button onClick={() => setOverrideDetailModal(o)} style={{ padding: '7px 14px', background: 'transparent', border: `1px solid ${t.borderCard}`, borderRadius: '6px', color: t.textMuted, fontSize: '11px', cursor: 'pointer', fontFamily: 'inherit' }}>
-                    VIEW DETAILS
-                  </button>
+                  <button onClick={() => setOverrideDetailModal(o)} style={{ padding: '7px 14px', background: 'transparent', border: `1px solid ${t.borderCard}`, borderRadius: '6px', color: t.textMuted, fontSize: '11px', cursor: 'pointer', fontFamily: 'inherit' }}>VIEW DETAILS</button>
                 </div>
               ))}
             </div>
-          </div>
+          </SectionCard>
         )}
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: '24px' }}>
+        {/* Main grid — Stories + Leave Alerts */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: '20px' }}>
 
-          {/* Stories */}
-          <div style={cardStyle}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-              <h2 style={{ color: t.textPrimary, margin: 0, fontSize: '15px', fontWeight: '700', letterSpacing: '0.5px' }}>THIS WEEK STORIES</h2>
+          {/* Stories — collapsible */}
+          <SectionCard
+            title="THIS WEEK STORIES"
+            isCollapsed={isCollapsed('stories')}
+            onToggle={() => toggle('stories')}
+            badge={stories.length}
+            badgeColor={t.accent}>
+            <div style={{ marginBottom: '16px', display: 'flex', justifyContent: 'flex-end' }}>
               <button onClick={() => setShowCreate(true)} style={{ padding: '9px 20px', background: t.accent, border: 'none', borderRadius: '8px', color: t.accentText, fontSize: '12px', fontWeight: '700', letterSpacing: '0.5px', cursor: 'pointer', fontFamily: 'inherit' }}>
                 + NEW STORY
               </button>
@@ -379,11 +369,15 @@ export default function EditorDashboard() {
                 )}
               </div>
             )}
-          </div>
+          </SectionCard>
 
-          {/* Leave Alerts */}
-          <div style={cardStyle}>
-            <h2 style={{ color: t.textPrimary, margin: '0 0 16px', fontSize: '15px', fontWeight: '700', letterSpacing: '0.5px' }}>LEAVE ALERTS</h2>
+          {/* Leave Alerts — collapsible */}
+          <SectionCard
+            title="LEAVE ALERTS"
+            isCollapsed={isCollapsed('leave-alerts')}
+            onToggle={() => toggle('leave-alerts')}
+            badge={alerts.length > 0 ? alerts.length : undefined}
+            badgeColor={t.warning}>
             {alerts.length === 0 ? (
               <div style={{ color: t.textMuted, fontSize: '13px', padding: '24px', textAlign: 'center', border: `1px solid ${t.borderCard}`, borderRadius: '8px' }}>
                 No pending alerts
@@ -400,7 +394,9 @@ export default function EditorDashboard() {
                     </div>
                     <div style={{ color: t.textSecondary, fontSize: '13px', marginBottom: '4px', fontWeight: '500' }}>{alert.leave_date}</div>
                     {alert.notes && (
-                      <div style={{ color: t.textMuted, fontSize: '12px', marginBottom: '10px', fontStyle: 'italic' }}>"{alert.notes}"</div>
+                      <div style={{ color: t.textMuted, fontSize: '12px', marginBottom: '10px', fontStyle: 'italic' }}>
+                        "{alert.notes}"
+                      </div>
                     )}
                     <div style={{ display: 'flex', gap: '6px', marginTop: '10px' }}>
                       <button onClick={() => acknowledgeLeave(alert.id)} style={{ flex: 1, padding: '8px', background: t.successBg, border: `1px solid ${t.successBorder}`, borderRadius: '6px', color: t.success, fontSize: '11px', fontWeight: '600', cursor: 'pointer', fontFamily: 'inherit' }}>APPROVE</button>
@@ -410,7 +406,7 @@ export default function EditorDashboard() {
                 ))}
               </div>
             )}
-          </div>
+          </SectionCard>
         </div>
       </main>
 
@@ -430,7 +426,9 @@ export default function EditorDashboard() {
                 <input value={form.headline} onChange={e => setForm(p => ({ ...p, headline: e.target.value }))} placeholder="Story headline..." style={inputStyle} />
               </div>
               <div>
-                <label style={{ color: t.textSecondary, fontSize: '12px', fontWeight: '600', display: 'block', marginBottom: '6px' }}>DEADLINE <span style={{ color: t.textMuted, fontWeight: '400' }}>({weekStart} to {weekEnd})</span></label>
+                <label style={{ color: t.textSecondary, fontSize: '12px', fontWeight: '600', display: 'block', marginBottom: '6px' }}>
+                  DEADLINE <span style={{ color: t.textMuted, fontWeight: '400' }}>({weekStart} to {weekEnd})</span>
+                </label>
                 <input type="date" value={form.deadline} min={weekStart} max={weekEnd} onChange={e => setForm(p => ({ ...p, deadline: e.target.value }))} style={{ ...inputStyle, colorScheme: 'dark' }} />
               </div>
               <div>
@@ -469,7 +467,7 @@ export default function EditorDashboard() {
 
       {/* Reject Leave Modal */}
       {rejectModal && (
-        <div role="dialog" aria-modal="true" aria-label="Reject leave request"
+        <div role="dialog" aria-modal="true"
           style={{ position: 'fixed', inset: 0, background: t.overlayBg, display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
           onClick={e => { if (e.target === e.currentTarget) { setRejectModal(null); setRejectReason('') } }}>
           <div style={{ background: t.bgCard, border: `1px solid ${t.dangerBorder}`, borderRadius: '12px', width: '100%', maxWidth: '420px', margin: '24px', padding: '28px', fontFamily: 'inherit', boxShadow: t.shadow }}>
@@ -554,3 +552,6 @@ export default function EditorDashboard() {
     </div>
   )
 }
+
+
+

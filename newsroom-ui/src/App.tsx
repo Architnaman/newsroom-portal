@@ -1,6 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './context/AuthContext'
-import { ThemeProvider, useTheme, fontZoomMap } from './context/ThemeContext' // MODIFIED: import fontZoomMap
+import { ThemeProvider, useTheme, fontZoomMap } from './context/ThemeContext'
 import Login from './pages/Login'
 import EditorDashboard from './pages/EditorDashboard'
 import KanbanBoard from './pages/KanbanBoard'
@@ -11,7 +11,10 @@ import CalendarPage from './pages/CalendarPage'
 import ReporterView from './pages/ReporterView'
 import Chatbot from './components/Chatbot'
 
-function ProtectedRoute({ children, requiredRole }: { children: React.ReactNode, requiredRole?: string }) {
+function ProtectedRoute({ children, requiredRole }: {
+  children: React.ReactNode
+  requiredRole?: string
+}) {
   const { user, role, loading } = useAuth()
   const { t } = useTheme()
 
@@ -21,15 +24,13 @@ function ProtectedRoute({ children, requiredRole }: { children: React.ReactNode,
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
-      background: t.bgPage
+      background: 'var(--bg-main, #eef4ff)'
     }}>
       <div style={{ textAlign: 'center' }}>
         <div style={{
           width: '10px', height: '10px',
-          borderRadius: '50%',
-          background: t.accent,
-          margin: '0 auto 14px',
-          animation: 'pulse 1s infinite'
+          borderRadius: '50%', background: t.accent,
+          margin: '0 auto 14px', animation: 'pulse 1s infinite'
         }} />
         <p style={{ color: t.textMuted, fontFamily: 'monospace', fontSize: '13px' }}>
           Loading...
@@ -46,14 +47,18 @@ function ProtectedRoute({ children, requiredRole }: { children: React.ReactNode,
   return <>{children}</>
 }
 
-// ADDED: Inner component that has access to ThemeContext
 function AppRoutes() {
   const { user, role } = useAuth()
-  const { fontSize } = useTheme() // ADDED
+  const { fontSize } = useTheme()
 
   return (
-    // ADDED: zoom wrapper — scales all inline px values correctly
-    <div style={{ zoom: fontZoomMap[fontSize] }}>
+    // FIXED: use CSS variable for background — Navbar injects !important override
+    // CSS variable is set by ThemeContext and updated by Navbar on save
+    <div style={{
+      zoom: fontZoomMap[fontSize],
+      minHeight: '100vh',
+      background: 'var(--bg-main, #eef4ff)',
+    }}>
       <Routes>
         <Route path="/login" element={
           user
@@ -61,25 +66,39 @@ function AppRoutes() {
             : <Login />
         } />
         <Route path="/dashboard" element={
-          <ProtectedRoute requiredRole="editor"><EditorDashboard /></ProtectedRoute>
+          <ProtectedRoute requiredRole="editor">
+            <EditorDashboard />
+          </ProtectedRoute>
         } />
         <Route path="/kanban" element={
-          <ProtectedRoute requiredRole="editor"><KanbanBoard /></ProtectedRoute>
+          <ProtectedRoute requiredRole="editor">
+            <KanbanBoard />
+          </ProtectedRoute>
         } />
         <Route path="/roster" element={
-          <ProtectedRoute requiredRole="editor"><ReporterRoster /></ProtectedRoute>
+          <ProtectedRoute requiredRole="editor">
+            <ReporterRoster />
+          </ProtectedRoute>
         } />
         <Route path="/queue" element={
-          <ProtectedRoute requiredRole="reporter"><ReporterQueue /></ProtectedRoute>
+          <ProtectedRoute requiredRole="reporter">
+            <ReporterQueue />
+          </ProtectedRoute>
         } />
         <Route path="/availability" element={
-          <ProtectedRoute requiredRole="reporter"><AvailabilityPage /></ProtectedRoute>
+          <ProtectedRoute requiredRole="reporter">
+            <AvailabilityPage />
+          </ProtectedRoute>
         } />
         <Route path="/calendar" element={
-          <ProtectedRoute><CalendarPage /></ProtectedRoute>
+          <ProtectedRoute>
+            <CalendarPage />
+          </ProtectedRoute>
         } />
         <Route path="/reporter-view/:reporterId" element={
-          <ProtectedRoute requiredRole="editor"><ReporterView /></ProtectedRoute>
+          <ProtectedRoute requiredRole="editor">
+            <ReporterView />
+          </ProtectedRoute>
         } />
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
