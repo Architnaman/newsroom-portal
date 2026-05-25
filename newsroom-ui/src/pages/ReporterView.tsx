@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import Navbar from '../components/Navbar'
 import { useTheme } from '../context/ThemeContext'
+import { useDateFormat } from '../context/DateFormatContext'
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
@@ -30,6 +31,7 @@ export default function ReporterView() {
   const { reporterId } = useParams<{ reporterId: string }>()
   const navigate = useNavigate()
   const { t } = useTheme()
+  const { formatDate } = useDateFormat()
 
   const [reporter, setReporter] = useState<any>(null)
   const [stories, setStories] = useState<any[]>([])
@@ -353,7 +355,7 @@ export default function ReporterView() {
                   </div>
                   <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
                     <span style={{ color: t.textMuted, fontSize: '12px' }}>
-                      Deadline: <span style={{ color: t.textSecondary, fontWeight: '600' }}>{story.deadline}</span>
+                      Deadline: <span style={{ color: t.textSecondary, fontWeight: '600' }}>{formatDate(story.deadline)}</span>
                     </span>
                     <span style={{ color: t.textMuted, fontSize: '12px' }}>
                       Complexity: <span style={{ color: t.textSecondary, fontWeight: '600' }}>{story.complexity}/5</span>
@@ -441,7 +443,7 @@ export default function ReporterView() {
                         {leave.leave_type?.toUpperCase()}
                       </span>
                       <span style={{ color: t.textPrimary, fontSize: '13px', fontWeight: '600' }}>
-                        {leave.leave_date}
+                        {formatDate(leave.leave_date)}
                       </span>
                       {leave.filed_by_editor && (
                         <span style={{
@@ -493,7 +495,7 @@ export default function ReporterView() {
                     <div>
                       <div style={{ display: 'flex', gap: '8px', marginBottom: '4px', alignItems: 'center' }}>
                         <span style={{ color: t.textPrimary, fontSize: '14px', fontWeight: '700' }}>
-                          {req.requested_date}
+                          {formatDate(req.requested_date)}
                         </span>
                         <span style={{
                           padding: '3px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: '600',

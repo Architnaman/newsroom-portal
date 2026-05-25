@@ -272,3 +272,58 @@ BEGIN
   );
 END;
 $$ LANGUAGE plpgsql;
+
+-- ================================================
+-- APP SETTINGS TABLE (Admin portal)
+-- Stores date format, deadline format, week start day
+-- ================================================
+CREATE TABLE IF NOT EXISTS app_settings (
+  key text PRIMARY KEY,
+  value text NOT NULL,
+  updated_at timestamptz DEFAULT now()
+);
+
+ALTER TABLE app_settings DISABLE ROW LEVEL SECURITY;
+GRANT ALL ON app_settings TO anon;
+GRANT ALL ON app_settings TO authenticated;
+
+INSERT INTO app_settings (key, value) VALUES
+  ('date_format', 'DD MMM YYYY'),
+  ('week_start_day', 'monday')
+ON CONFLICT (key) DO NOTHING;
+
+-- ================================================
+-- ADMINS TABLE
+-- ================================================
+CREATE TABLE IF NOT EXISTS admins (
+  id uuid PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  name text NOT NULL,
+  email text UNIQUE NOT NULL,
+  created_at timestamptz DEFAULT now()
+);
+
+ALTER TABLE admins DISABLE ROW LEVEL SECURITY;
+GRANT ALL ON admins TO anon;
+GRANT ALL ON admins TO authenticated;
+
+-- ================================================
+-- UPDATE PROFILES ROLE CONSTRAINT TO INCLUDE ADMIN
+-- ================================================
+ALTER TABLE profiles DROP CONSTRAINT IF EXISTS profiles_role_check;
+ALTER TABLE profiles ADD CONSTRAINT profiles_role_check
+  CHECK (role IN ('editor', 'reporter', 'admin'));
+
+-- ================================================
+-- FIX WEEKLY RESET FUNCTION
+-- current_load column does not exist - use assignments
+-- ================================================
+CREATE OR REPLACE FUNCTION reset_weekly_reporter_load()
+RETURNS void AS \$\$
+BEGIN
+  UPDATE assignments SET is_active = false
+  WHERE is_active = true AND story_id IN (
+    SELECT id FROM stories WHERE status IN ('filed', 'published')
+  );
+END;
+\$\$ LANGUAGE plpgsql;
+

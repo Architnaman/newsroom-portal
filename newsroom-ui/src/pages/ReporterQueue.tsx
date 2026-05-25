@@ -3,12 +3,14 @@ import { supabase } from "../lib/supabase"
 import { useAuth } from "../context/AuthContext"
 import Navbar from "../components/Navbar"
 import { useTheme } from "../context/ThemeContext"
+import { useDateFormat } from '../context/DateFormatContext'
 import { useCollapse } from "../hooks/useCollapse"
 import SectionCard from "../components/SectionCard"
 
 export default function ReporterQueue() {
   const { reporterId } = useAuth()
   const { t } = useTheme()
+  const { formatDate } = useDateFormat()
   const { toggle, isCollapsed } = useCollapse('reporter-queue', ['active', 'filed'])
 
   const [stories, setStories] = useState<any[]>([])
@@ -187,7 +189,7 @@ export default function ReporterQueue() {
                           {/* Meta */}
                           <div style={{ display: "flex", gap: "20px", flexWrap: "wrap" }}>
                             <span style={{ color: t.textMuted, fontSize: "12px" }}>
-                              Deadline: <span style={{ color: t.textSecondary, fontWeight: "600" }}>{story.deadline}</span>
+                              Deadline: <span style={{ color: t.textSecondary, fontWeight: "600" }}>{formatDate(story.deadline)}</span>
                             </span>
                             <span style={{ color: t.textMuted, fontSize: "12px" }}>
                               Complexity: <span style={{ color: t.textSecondary, fontWeight: "600" }}>{story.complexity}/5</span>

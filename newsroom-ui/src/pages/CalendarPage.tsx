@@ -3,12 +3,17 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import Navbar from '../components/Navbar'
 import { useTheme } from '../context/ThemeContext'
+import { useDateFormat } from '../context/DateFormatContext'
 import { useCollapse } from '../hooks/useCollapse'
 import SectionCard from '../components/SectionCard'
 
 export default function CalendarPage() {
   const { role, reporterId } = useAuth()
   const { t } = useTheme()
+  const { formatDate, getWeekStart: ctxWeekStart, getWeekDates: ctxWeekDates, weekStartDay } = useDateFormat()
+  const DAYS = weekStartDay === 'sunday'
+    ? ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+    : ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
   const [currentMonth, setCurrentMonth] = useState(new Date())
   const [holidays, setHolidays] = useState<any[]>([])
@@ -464,7 +469,7 @@ export default function CalendarPage() {
                             {story.headline}
                           </div>
                           <div style={{ fontSize: '8px', color: t.textMuted, marginTop: '2px' }}>
-                            {story.assigned_at} → {story.deadline}
+                            {story.assigned_at} → {formatDate(story.deadline)}
                           </div>
                         </div>
                       )
@@ -538,12 +543,12 @@ export default function CalendarPage() {
                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '5px 10px', background: t.bgCard, border: `1px solid ${t.borderCard}`, borderRadius: '6px' }}>
                               <span style={{ color: t.textMuted, fontSize: '11px', fontWeight: '600' }}>ASSIGNED</span>
-                              <span style={{ color: t.textSecondary, fontSize: '12px', fontWeight: '700' }}>{startDate}</span>
+                              <span style={{ color: t.textSecondary, fontSize: '12px', fontWeight: '700' }}>{formatDate(startDate)}</span>
                             </div>
                             <span style={{ color: t.textMuted, fontSize: '16px' }}>→</span>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '5px 10px', background: daysLeft <= 1 ? t.dangerBg : daysLeft <= 3 ? t.warningBg : t.accentBg, border: `1px solid ${daysLeft <= 1 ? t.dangerBorder : daysLeft <= 3 ? t.warningBorder : t.accentBorder}`, borderRadius: '6px' }}>
                               <span style={{ color: t.textMuted, fontSize: '11px', fontWeight: '600' }}>DEADLINE</span>
-                              <span style={{ color: daysLeft <= 1 ? t.danger : daysLeft <= 3 ? t.warning : t.accent, fontSize: '12px', fontWeight: '700' }}>{story.deadline}</span>
+                              <span style={{ color: daysLeft <= 1 ? t.danger : daysLeft <= 3 ? t.warning : t.accent, fontSize: '12px', fontWeight: '700' }}>{formatDate(story.deadline)}</span>
                             </div>
                           </div>
                         </div>
@@ -608,7 +613,7 @@ export default function CalendarPage() {
                       <span style={{ padding: '3px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: '700', background: `${ltc[leave.leave_type]}20`, color: ltc[leave.leave_type], border: `1px solid ${ltc[leave.leave_type]}30` }}>
                         {leave.leave_type?.toUpperCase()}
                       </span>
-                      <span style={{ color: t.textPrimary, fontSize: '14px', fontWeight: '700' }}>{leave.leave_date}</span>
+                      <span style={{ color: t.textPrimary, fontSize: '14px', fontWeight: '700' }}>{formatDate(leave.leave_date)}</span>
                     </div>
                     {leave.notes && <p style={{ color: t.textMuted, fontSize: '12px', margin: 0 }}>{leave.notes}</p>}
                     {leave.status === 'rejected' && leave.reject_reason && (
@@ -767,7 +772,7 @@ export default function CalendarPage() {
                             <span style={{ color: t.textMuted, fontSize: '16px', fontWeight: '700' }}>→</span>
                             <div style={{ padding: '5px 10px', background: daysLeft <= 1 ? t.dangerBg : daysLeft <= 3 ? t.warningBg : t.accentBg, border: `1px solid ${daysLeft <= 1 ? t.dangerBorder : daysLeft <= 3 ? t.warningBorder : t.accentBorder}`, borderRadius: '6px' }}>
                               <span style={{ color: t.textMuted, fontSize: '10px', fontWeight: '600', display: 'block', marginBottom: '1px' }}>DEADLINE</span>
-                              <span style={{ color: daysLeft <= 1 ? t.danger : daysLeft <= 3 ? t.warning : t.accent, fontSize: '12px', fontWeight: '700' }}>{story.deadline}</span>
+                              <span style={{ color: daysLeft <= 1 ? t.danger : daysLeft <= 3 ? t.warning : t.accent, fontSize: '12px', fontWeight: '700' }}>{formatDate(story.deadline)}</span>
                             </div>
                             <div style={{ padding: '5px 10px', background: daysLeft <= 1 ? t.dangerBg : daysLeft <= 3 ? t.warningBg : t.accentBg, border: `1px solid ${daysLeft <= 1 ? t.dangerBorder : daysLeft <= 3 ? t.warningBorder : t.accentBorder}`, borderRadius: '6px', textAlign: 'center' }}>
                               <span style={{ color: daysLeft <= 1 ? t.danger : daysLeft <= 3 ? t.warning : t.accent, fontSize: '14px', fontWeight: '800' }}>

@@ -90,8 +90,10 @@ export default function Navbar() {
     { label: 'Availability', path: '/availability' },
     { label: 'Calendar', path: '/calendar' },
   ]
-
-  const nav = role === 'editor' ? editorNav : reporterNav
+  const adminNav: NavItem[] = [
+  { label: 'Settings', path: '/admin' },
+]
+  const nav = role === 'editor' ? editorNav : role === 'admin' ? adminNav : reporterNav
 
   const editorGuide = [
     { icon: '📝', title: 'Create a Story', desc: 'Go to Dashboard → click "+ NEW STORY". Fill in headline, deadline, category and urgency.' },

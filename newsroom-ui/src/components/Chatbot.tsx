@@ -26,13 +26,19 @@ export default function Chatbot() {
   }, [messages])
 
   async function getDBContext() {
+    // Always fetch holidays
+    const { data: holidays } = await supabase.from("holidays").select("*")
+    const today = new Date().toISOString().split("T")[0]
+
+    // Mark which holidays are upcoming
+    const upcomingHolidays = (holidays || []).filter((h: any) => h.date.split("T")[0] >= today)
+
     if (role === "editor") {
       const { data: stories } = await supabase.from("stories").select("id, headline, status, category, urgency, deadline, complexity, priority").order("created_at", { ascending: false }).limit(10)
       const { data: reporters } = await supabase.from("reporters").select("id, name, email, beats, status, max_stories_per_week, complexity_level").eq("status", "active")
       const { data: leaves } = await supabase.from("leave_requests").select("id, reporter_id, leave_date, leave_type, status, notes").in("status", ["pending", "acknowledged"])
       const { data: assignments } = await supabase.from("assignments").select("story_id, reporter_id").eq("is_active", true)
       const { data: availability } = await supabase.from("availability").select("reporter_id, week_start_date, available_days")
-      const today = new Date().toISOString().split("T")[0]
 
       const reporterAvailability = reporters?.map(r => {
         const reporterLeaves = leaves?.filter(l => l.reporter_id === r.id) || []
@@ -46,13 +52,21 @@ export default function Chatbot() {
         }
       })
 
-      return { stories, reporters, leaves, assignments, reporterAvailability, today }
+      // Check which stories have deadlines on holidays
+      const storiesOnHolidays = stories?.filter(s =>
+        (holidays || []).some((h: any) => h.date.split("T")[0] === s.deadline)
+      ).map(s => ({
+        ...s,
+        holiday_name: (holidays || []).find((h: any) => h.date.split("T")[0] === s.deadline)?.name
+      }))
+
+      return { stories, reporters, leaves, assignments, reporterAvailability, today, holidays: upcomingHolidays, storiesOnHolidays }
     } else {
       const { data: myAssignments } = await supabase.from("assignments").select("*, stories(*)").eq("reporter_id", reporterId).eq("is_active", true)
       const { data: leaves } = await supabase.from("leave_requests").select("*").eq("reporter_id", reporterId)
       const { data: availability } = await supabase.from("availability").select("*").eq("reporter_id", reporterId)
       const { data: overrideAssignments } = await supabase.from("assignments").select("*, stories(*)").eq("reporter_id", reporterId).eq("is_active", true).eq("is_override", true).eq("override_status", "pending")
-      return { myAssignments, leaves, availability, overrideAssignments }
+      return { myAssignments, leaves, availability, overrideAssignments, today, holidays: upcomingHolidays }
     }
   }
 
@@ -79,7 +93,14 @@ export default function Chatbot() {
           description: action.description || "", status: "unassigned"
         }).select().single()
         if (error) return "Failed to create story: " + error.message
-        return "Story created! Headline: " + data.headline + " | Deadline: " + data.deadline + " | Status: UNASSIGNED"
+
+        // Check if deadline is a holiday
+        const { data: holidays } = await supabase.from("holidays").select("*")
+        const isHoliday = (holidays || []).find((h: any) => h.date.split("T")[0] === action.deadline)
+        const holidayWarning = isHoliday
+          ? `\n⚠️ Note: The deadline (${action.deadline}) falls on ${isHoliday.name} (public holiday). When assigning this story, override workflow will be required.`
+          : ""
+        return `Story created! Headline: ${data.headline} | Deadline: ${data.deadline} | Status: UNASSIGNED${holidayWarning}`
       }
 
       if (action.type === "approve_leave") {
@@ -107,6 +128,15 @@ export default function Chatbot() {
       }
 
       if (action.type === "assign_story") {
+        // Check if story deadline is a holiday — force override
+        const { data: storyData } = await supabase.from("stories").select("deadline").eq("id", action.story_id).single()
+        const { data: holidays } = await supabase.from("holidays").select("*")
+        const isHoliday = storyData && (holidays || []).find((h: any) => h.date.split("T")[0] === storyData.deadline)
+
+        if (isHoliday) {
+          return `⚠️ Cannot use normal assignment — the story deadline falls on ${isHoliday.name} (public holiday). Please use override_assign_story with a reason instead.`
+        }
+
         await supabase.from("assignments").update({ is_active: false }).eq("story_id", action.story_id)
         await supabase.from("assignments").insert({ story_id: action.story_id, reporter_id: action.reporter_id, is_active: true, is_override: false })
         await supabase.from("stories").update({ status: "assigned" }).eq("id", action.story_id)
@@ -115,9 +145,23 @@ export default function Chatbot() {
 
       if (action.type === "override_assign_story") {
         await supabase.from("assignments").update({ is_active: false }).eq("story_id", action.story_id)
-        await supabase.from("assignments").insert({ story_id: action.story_id, reporter_id: action.reporter_id, is_active: true, is_override: true, override_reason: action.reason, override_status: "pending" })
+        await supabase.from("assignments").insert({
+          story_id: action.story_id,
+          reporter_id: action.reporter_id,
+          is_active: true,
+          is_override: true,
+          override_reason: action.reason,
+          override_status: "pending"
+        })
         await supabase.from("stories").update({ status: "assigned" }).eq("id", action.story_id)
-        return "Story assigned with override! Reporter will be notified to accept or reject with a reason."
+
+        // Check if it was a holiday override
+        const { data: storyData } = await supabase.from("stories").select("deadline").eq("id", action.story_id).single()
+        const { data: holidays } = await supabase.from("holidays").select("*")
+        const isHoliday = storyData && (holidays || []).find((h: any) => h.date.split("T")[0] === storyData.deadline)
+        const holidayNote = isHoliday ? ` (Holiday override: ${isHoliday.name})` : ""
+
+        return `Story assigned with override${holidayNote}! Reporter will be notified to accept or reject with a reason.`
       }
 
       if (action.type === "accept_override") {
@@ -142,8 +186,20 @@ export default function Chatbot() {
       }
 
       if (action.type === "file_leave") {
-        await supabase.from("leave_requests").insert({ reporter_id: reporterId, leave_date: action.leave_date, leave_type: action.leave_type || "planned", is_immediate: action.leave_type === "sick" || action.leave_type === "emergency", notes: action.notes || "", status: "pending" })
-        return "Leave request filed for " + action.leave_date + " (" + (action.leave_type || "planned") + "). Waiting for editor approval."
+        // Check if leave date is a holiday
+        const { data: holidays } = await supabase.from("holidays").select("*")
+        const isHoliday = (holidays || []).find((h: any) => h.date.split("T")[0] === action.leave_date)
+        if (isHoliday) {
+          return `⚠️ ${action.leave_date} is already ${isHoliday.name} (public holiday) — you don't need to file leave for a public holiday, you're automatically off!`
+        }
+
+        await supabase.from("leave_requests").insert({
+          reporter_id: reporterId, leave_date: action.leave_date,
+          leave_type: action.leave_type || "planned",
+          is_immediate: action.leave_type === "sick" || action.leave_type === "emergency",
+          notes: action.notes || "", status: "pending"
+        })
+        return `Leave request filed for ${action.leave_date} (${action.leave_type || "planned"}). Waiting for editor approval.`
       }
 
       if (action.type === "update_availability") {
@@ -199,6 +255,15 @@ export default function Chatbot() {
 Today is ${today}.
 Database context: ${JSON.stringify(dbContext)}
 
+HOLIDAY RULES — VERY IMPORTANT:
+- holidays in context lists all public holidays
+- storiesOnHolidays in context lists stories whose deadlines fall on public holidays
+- If a story deadline falls on a public holiday, you CANNOT use normal assign_story
+- For stories with deadlines on holidays, you MUST use override_assign_story with a reason
+- When editor asks to assign a story with a holiday deadline, warn them and ask for override reason
+- When editor asks to create a story with a holiday deadline, warn them that assignment will require override
+- If reporter wants to file leave on a holiday date, tell them it's already a public holiday
+
 IMPORTANT - Before suggesting reporters for assignment:
 - Check reporterAvailability in the context
 - If a reporter has is_on_leave_today = true, clearly say they are ON LEAVE today
@@ -207,8 +272,8 @@ IMPORTANT - Before suggesting reporters for assignment:
 
 You can perform these actions by returning JSON:
 1. Create story: {"action": {"type": "create_story", "headline": "...", "category": "Politics/Economy/Tech/Science/Crime/Local/Sports/Entertainment/Business", "urgency": "breaking/high/normal/low", "complexity": 1-5, "priority": 1-5, "deadline": "YYYY-MM-DD", "description": "..."}, "message": "..."}
-2. Normal assign: {"action": {"type": "assign_story", "story_id": "...", "reporter_id": "..."}, "message": "..."}
-3. Override assign: {"action": {"type": "override_assign_story", "story_id": "...", "reporter_id": "...", "reason": "..."}, "message": "..."}
+2. Normal assign (only if deadline is NOT a holiday): {"action": {"type": "assign_story", "story_id": "...", "reporter_id": "..."}, "message": "..."}
+3. Override assign (REQUIRED if deadline is a holiday): {"action": {"type": "override_assign_story", "story_id": "...", "reporter_id": "...", "reason": "..."}, "message": "..."}
 4. Approve leave: {"action": {"type": "approve_leave", "leave_id": "..."}, "message": "..."}
 5. Reject leave: {"action": {"type": "reject_leave", "leave_id": "...", "reason": "..."}, "message": "..."}
 6. Publish story: {"action": {"type": "publish_story", "story_id": "...", "feedback": "optional"}, "message": "..."}
@@ -233,6 +298,11 @@ Today is ${today}.
 Reporter ID: ${reporterId}
 Database context: ${JSON.stringify(dbContext)}
 
+HOLIDAY RULES:
+- holidays in context lists all public holidays
+- If reporter asks to file leave on a public holiday date, tell them it's already a public holiday — no need to file leave
+- If reporter has a pending override assignment on a holiday, mention the holiday name when asking them to accept/reject
+
 YOU ARE HELPING A REPORTER - NOT AN EDITOR.
 REPORTERS CANNOT CREATE STORIES - STORIES ARE CREATED BY EDITORS ONLY.
 REPORTERS CANNOT ASSIGN STORIES - ONLY EDITORS CAN ASSIGN.
@@ -246,6 +316,7 @@ If reporter asks to publish a story say: "Only editors can publish stories."
 IMPORTANT:
 - Check overrideAssignments in context
 - If there are pending override assignments (is_override=true, override_status=pending), immediately inform the reporter and ask them to accept or reject with a reason
+- If the override assignment deadline falls on a holiday (check holidays in context), mention the holiday name
 
 You can ONLY perform these actions for reporters:
 1. Start working: {"action": {"type": "start_working", "story_id": "..."}, "message": "..."}
@@ -321,129 +392,37 @@ CRITICAL JSON RULES:
   }
 
   return (
-    <div style={{
-      position: "fixed",
-      bottom: "24px",
-      right: "24px",
-      zIndex: 9999,
-      fontFamily: '"Inter", "DM Mono", "Courier New", monospace'
-    }}>
+    <div style={{ position: "fixed", bottom: "24px", right: "24px", zIndex: 9999, fontFamily: '"Inter", "DM Mono", "Courier New", monospace' }}>
       {open && (
-        <div style={{
-          width: "400px",
-          height: "540px",
-          background: t.bgCard,
-          border: `1px solid ${t.accentBorder}`,
-          borderRadius: "14px",
-          display: "flex",
-          flexDirection: "column",
-          marginBottom: "12px",
-          boxShadow: t.shadow,
-          overflow: "hidden"
-        }}>
+        <div style={{ width: "400px", height: "540px", background: t.bgCard, border: `1px solid ${t.accentBorder}`, borderRadius: "14px", display: "flex", flexDirection: "column", marginBottom: "12px", boxShadow: t.shadow, overflow: "hidden" }}>
 
           {/* Header */}
-          <div style={{
-            padding: "16px 20px",
-            borderBottom: `1px solid ${t.borderCard}`,
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            background: t.accentBg
-          }}>
+          <div style={{ padding: "16px 20px", borderBottom: `1px solid ${t.borderCard}`, display: "flex", justifyContent: "space-between", alignItems: "center", background: t.accentBg }}>
             <div>
-              <div style={{
-                color: t.accent,
-                fontSize: "14px",
-                fontWeight: "700",
-                letterSpacing: "1px"
-              }}>
-                NEWSROOM AI
-              </div>
-              <div style={{
-                color: t.textMuted,
-                fontSize: "11px",
-                fontWeight: "500",
-                marginTop: "2px"
-              }}>
+              <div style={{ color: t.accent, fontSize: "14px", fontWeight: "700", letterSpacing: "1px" }}>NEWSROOM AI</div>
+              <div style={{ color: t.textMuted, fontSize: "11px", fontWeight: "500", marginTop: "2px" }}>
                 {role === "editor" ? "Editor Assistant" : "Reporter Assistant"}
               </div>
             </div>
-            <button
-              onClick={() => setOpen(false)}
-              aria-label="Close chat"
-              style={{
-                background: t.bgInput,
-                border: `1px solid ${t.borderCard}`,
-                color: t.textMuted,
-                fontSize: "16px",
-                cursor: "pointer",
-                borderRadius: "6px",
-                width: "32px",
-                height: "32px",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontFamily: "inherit"
-              }}>
+            <button onClick={() => setOpen(false)} aria-label="Close chat"
+              style={{ background: t.bgInput, border: `1px solid ${t.borderCard}`, color: t.textMuted, fontSize: "16px", cursor: "pointer", borderRadius: "6px", width: "32px", height: "32px", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "inherit" }}>
               X
             </button>
           </div>
 
           {/* Messages */}
-          <div style={{
-            flex: 1,
-            overflowY: "auto",
-            padding: "16px",
-            display: "flex",
-            flexDirection: "column",
-            gap: "12px",
-            background: t.bgPage
-          }}>
+          <div style={{ flex: 1, overflowY: "auto", padding: "16px", display: "flex", flexDirection: "column", gap: "12px", background: t.bgPage }}>
             {messages.map((msg, i) => (
-              <div
-                key={i}
-                style={{
-                  display: "flex",
-                  justifyContent: msg.role === "user" ? "flex-end" : "flex-start"
-                }}>
-                <div style={{
-                  maxWidth: "82%",
-                  padding: "10px 14px",
-                  borderRadius: msg.role === "user" ? "14px 14px 4px 14px" : "14px 14px 14px 4px",
-                  background: msg.role === "user" ? t.accentBg : t.bgCard,
-                  border: `1px solid ${msg.role === "user" ? t.accentBorder : t.borderCard}`,
-                  color: msg.role === "user" ? t.accent : t.textPrimary,
-                  fontSize: "13px",
-                  lineHeight: 1.6,
-                  whiteSpace: "pre-wrap",
-                  fontWeight: msg.role === "user" ? "500" : "400",
-                  boxShadow: t.shadowCard
-                }}>
+              <div key={i} style={{ display: "flex", justifyContent: msg.role === "user" ? "flex-end" : "flex-start" }}>
+                <div style={{ maxWidth: "82%", padding: "10px 14px", borderRadius: msg.role === "user" ? "14px 14px 4px 14px" : "14px 14px 14px 4px", background: msg.role === "user" ? t.accentBg : t.bgCard, border: `1px solid ${msg.role === "user" ? t.accentBorder : t.borderCard}`, color: msg.role === "user" ? t.accent : t.textPrimary, fontSize: "13px", lineHeight: 1.6, whiteSpace: "pre-wrap", fontWeight: msg.role === "user" ? "500" : "400", boxShadow: t.shadowCard }}>
                   {msg.text}
                 </div>
               </div>
             ))}
-
             {loading && (
               <div style={{ display: "flex", justifyContent: "flex-start" }}>
-                <div style={{
-                  padding: "10px 16px",
-                  borderRadius: "14px 14px 14px 4px",
-                  background: t.bgCard,
-                  border: `1px solid ${t.borderCard}`,
-                  color: t.textMuted,
-                  fontSize: "13px",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "6px"
-                }}>
-                  <div style={{
-                    width: "6px", height: "6px",
-                    borderRadius: "50%",
-                    background: t.accent,
-                    animation: "pulse 1s infinite"
-                  }} />
+                <div style={{ padding: "10px 16px", borderRadius: "14px 14px 14px 4px", background: t.bgCard, border: `1px solid ${t.borderCard}`, color: t.textMuted, fontSize: "13px", display: "flex", alignItems: "center", gap: "6px" }}>
+                  <div style={{ width: "6px", height: "6px", borderRadius: "50%", background: t.accent, animation: "pulse 1s infinite" }} />
                   Thinking...
                   <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}`}</style>
                 </div>
@@ -453,52 +432,16 @@ CRITICAL JSON RULES:
           </div>
 
           {/* Input */}
-          <div style={{
-            padding: "12px 16px",
-            borderTop: `1px solid ${t.borderCard}`,
-            display: "flex",
-            gap: "8px",
-            background: t.bgCard
-          }}>
-            <input
-              value={input}
-              onChange={e => setInput(e.target.value)}
+          <div style={{ padding: "12px 16px", borderTop: `1px solid ${t.borderCard}`, display: "flex", gap: "8px", background: t.bgCard }}>
+            <input value={input} onChange={e => setInput(e.target.value)}
               onKeyDown={e => e.key === "Enter" && !e.shiftKey && sendMessage()}
-              placeholder="Type a message..."
-              aria-label="Chat message input"
-              style={{
-                flex: 1,
-                padding: "10px 14px",
-                background: t.bgInput,
-                border: `1px solid ${t.borderInput}`,
-                borderRadius: "8px",
-                color: t.textPrimary,
-                fontSize: "13px",
-                outline: "none",
-                fontFamily: "inherit",
-                transition: "border-color 0.15s"
-              }}
+              placeholder="Type a message..." aria-label="Chat message input"
+              style={{ flex: 1, padding: "10px 14px", background: t.bgInput, border: `1px solid ${t.borderInput}`, borderRadius: "8px", color: t.textPrimary, fontSize: "13px", outline: "none", fontFamily: "inherit", transition: "border-color 0.15s" }}
               onFocus={e => e.target.style.borderColor = t.accent}
               onBlur={e => e.target.style.borderColor = t.borderInput}
             />
-            <button
-              onClick={sendMessage}
-              disabled={loading}
-              aria-label="Send message"
-              style={{
-                padding: "10px 18px",
-                background: loading ? t.textMuted : t.accent,
-                border: "none",
-                borderRadius: "8px",
-                color: t.accentText,
-                fontSize: "12px",
-                fontWeight: "700",
-                letterSpacing: "0.5px",
-                cursor: loading ? "not-allowed" : "pointer",
-                fontFamily: "inherit",
-                opacity: loading ? 0.6 : 1,
-                transition: "all 0.15s"
-              }}>
+            <button onClick={sendMessage} disabled={loading} aria-label="Send message"
+              style={{ padding: "10px 18px", background: loading ? t.textMuted : t.accent, border: "none", borderRadius: "8px", color: t.accentText, fontSize: "12px", fontWeight: "700", letterSpacing: "0.5px", cursor: loading ? "not-allowed" : "pointer", fontFamily: "inherit", opacity: loading ? 0.6 : 1, transition: "all 0.15s" }}>
               SEND
             </button>
           </div>
@@ -506,28 +449,10 @@ CRITICAL JSON RULES:
       )}
 
       {/* Toggle button */}
-      <button
-        onClick={() => setOpen(!open)}
+      <button onClick={() => setOpen(!open)}
         aria-label={open ? "Close AI assistant" : "Open AI assistant"}
         aria-expanded={open}
-        style={{
-          width: "56px",
-          height: "56px",
-          borderRadius: "50%",
-          background: t.accent,
-          border: `2px solid ${t.accentBorder}`,
-          cursor: "pointer",
-          fontSize: "20px",
-          fontWeight: "700",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          boxShadow: `0 4px 20px ${t.accent}40`,
-          marginLeft: "auto",
-          color: t.accentText,
-          fontFamily: "inherit",
-          transition: "all 0.15s"
-        }}>
+        style={{ width: "56px", height: "56px", borderRadius: "50%", background: t.accent, border: `2px solid ${t.accentBorder}`, cursor: "pointer", fontSize: "20px", fontWeight: "700", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: `0 4px 20px ${t.accent}40`, marginLeft: "auto", color: t.accentText, fontFamily: "inherit", transition: "all 0.15s" }}>
         {open ? "✕" : "AI"}
       </button>
     </div>

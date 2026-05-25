@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
@@ -10,7 +10,7 @@ interface Suggestion {
 }
 
 interface Props {
-  story: { id: string; headline: string; urgency: string }
+  story: { id: string; headline: string; urgency: string; deadline?: string }
   onClose: () => void
   onAssigned: () => void
 }
@@ -21,6 +21,7 @@ export default function AssignModal({ story, onClose, onAssigned }: Props) {
 
   const [suggestions, setSuggestions] = useState<Suggestion[]>([])
   const [allReporters, setAllReporters] = useState<any[]>([])
+  const [holidays, setHolidays] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
   const [assigning, setAssigning] = useState<string | null>(null)
   const [fetched, setFetched] = useState(false)
@@ -31,11 +32,24 @@ export default function AssignModal({ story, onClose, onAssigned }: Props) {
   const [showAllReporters, setShowAllReporters] = useState(false)
 
   const urgencyColor: Record<string, string> = {
-    breaking: t.breaking,
-    high: t.warning,
-    normal: t.accent,
-    low: t.success
+    breaking: t.breaking, high: t.warning, normal: t.accent, low: t.success
   }
+
+  // Fetch holidays on mount
+  useEffect(() => {
+    supabase.from('holidays').select('*').then(({ data }) => {
+      setHolidays(data || [])
+    })
+  }, [])
+
+  // Check if story deadline falls on a holiday
+  const deadlineIsHoliday = story.deadline
+    ? holidays.some((h: any) => h.date.split('T')[0] === story.deadline)
+    : false
+
+  const holidayName = deadlineIsHoliday
+    ? holidays.find((h: any) => h.date.split('T')[0] === story.deadline)?.name
+    : ''
 
   async function fetchSuggestions() {
     setLoading(true); setError('')
@@ -102,17 +116,11 @@ export default function AssignModal({ story, onClose, onAssigned }: Props) {
   }
 
   const inputStyle: React.CSSProperties = {
-    width: '100%',
-    padding: '10px 14px',
-    background: t.bgInput,
-    border: `1px solid ${t.borderInput}`,
-    borderRadius: '8px',
-    color: t.textPrimary,
-    fontSize: '13px',
-    outline: 'none',
-    boxSizing: 'border-box',
-    fontFamily: 'inherit',
-    resize: 'none' as const,
+    width: '100%', padding: '10px 14px',
+    background: t.bgInput, border: `1px solid ${t.borderInput}`,
+    borderRadius: '8px', color: t.textPrimary,
+    fontSize: '13px', outline: 'none',
+    boxSizing: 'border-box', fontFamily: 'inherit', resize: 'none' as const,
   }
 
   const getScoreBarColor = (value: number) =>
@@ -120,113 +128,64 @@ export default function AssignModal({ story, onClose, onAssigned }: Props) {
 
   return (
     <div
-      role="dialog"
-      aria-modal="true"
-      aria-label="Assign reporter to story"
-      style={{
-        position: 'fixed', inset: 0,
-        background: t.overlayBg,
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        zIndex: 1000,
-        fontFamily: '"Inter", "DM Mono", "Courier New", monospace'
-      }}
+      role="dialog" aria-modal="true" aria-label="Assign reporter to story"
+      style={{ position: 'fixed', inset: 0, background: t.overlayBg, display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, fontFamily: '"Inter", "DM Mono", "Courier New", monospace' }}
       onClick={e => { if (e.target === e.currentTarget) onClose() }}>
 
-      <div style={{
-        background: t.bgCard,
-        border: `1px solid ${t.accentBorder}`,
-        borderRadius: '12px',
-        width: '100%',
-        maxWidth: '580px',
-        margin: '24px',
-        maxHeight: '88vh',
-        overflow: 'auto',
-        boxShadow: t.shadow
-      }}>
+      <div style={{ background: t.bgCard, border: `1px solid ${t.accentBorder}`, borderRadius: '12px', width: '100%', maxWidth: '580px', margin: '24px', maxHeight: '88vh', overflow: 'auto', boxShadow: t.shadow }}>
 
         {/* Header */}
-        <div style={{
-          padding: '20px 24px',
-          borderBottom: `1px solid ${t.borderCard}`,
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'flex-start'
-        }}>
+        <div style={{ padding: '20px 24px', borderBottom: `1px solid ${t.borderCard}`, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-              <span style={{
-                padding: '3px 10px',
-                borderRadius: '4px',
-                fontSize: '10px',
-                fontWeight: '700',
-                letterSpacing: '0.5px',
-                background: `${urgencyColor[story.urgency]}20`,
-                color: urgencyColor[story.urgency],
-                border: `1px solid ${urgencyColor[story.urgency]}40`
-              }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', flexWrap: 'wrap' }}>
+              <span style={{ padding: '3px 10px', borderRadius: '4px', fontSize: '10px', fontWeight: '700', letterSpacing: '0.5px', background: `${urgencyColor[story.urgency]}20`, color: urgencyColor[story.urgency], border: `1px solid ${urgencyColor[story.urgency]}40` }}>
                 {story.urgency.toUpperCase()}
               </span>
+              {/* HOLIDAY WARNING BADGE */}
+              {deadlineIsHoliday && (
+                <span style={{ padding: '3px 10px', borderRadius: '4px', fontSize: '10px', fontWeight: '700', background: t.dangerBg, color: t.danger, border: `1px solid ${t.dangerBorder}` }}>
+                  ⚠ DEADLINE ON {holidayName?.toUpperCase()}
+                </span>
+              )}
             </div>
             <h2 style={{ color: t.textPrimary, margin: 0, fontSize: '17px', fontWeight: '700' }}>
               {story.headline}
             </h2>
           </div>
-          <button
-            onClick={onClose}
-            aria-label="Close"
-            style={{
-              background: 'none', border: 'none',
-              color: t.textMuted, fontSize: '22px',
-              cursor: 'pointer', padding: '0 4px',
-              lineHeight: 1, marginLeft: '12px'
-            }}>
+          <button onClick={onClose} aria-label="Close"
+            style={{ background: 'none', border: 'none', color: t.textMuted, fontSize: '22px', cursor: 'pointer', padding: '0 4px', lineHeight: 1, marginLeft: '12px' }}>
             x
           </button>
         </div>
 
         <div style={{ padding: '24px' }}>
+
+          {/* HOLIDAY BANNER */}
+          {deadlineIsHoliday && (
+            <div style={{ padding: '14px 16px', background: t.dangerBg, border: `1px solid ${t.dangerBorder}`, borderRadius: '8px', marginBottom: '20px' }}>
+              <p style={{ color: t.danger, fontSize: '13px', fontWeight: '700', margin: '0 0 4px' }}>
+                ⚠ Public Holiday — Override Required
+              </p>
+              <p style={{ color: t.textMuted, fontSize: '12px', margin: 0, lineHeight: 1.5 }}>
+                The story deadline falls on <strong>{holidayName}</strong> (public holiday). All assignments will use the override workflow. The reporter must accept or reject.
+              </p>
+            </div>
+          )}
+
           {!fetched ? (
             <div style={{ textAlign: 'center', padding: '20px 0' }}>
-              <div style={{
-                width: '60px', height: '60px', borderRadius: '50%',
-                background: t.accentBg, border: `2px solid ${t.accentBorder}`,
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                margin: '0 auto 16px', fontSize: '24px'
-              }}>
+              <div style={{ width: '60px', height: '60px', borderRadius: '50%', background: t.accentBg, border: `2px solid ${t.accentBorder}`, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px', fontSize: '24px' }}>
                 ⚡
               </div>
               <p style={{ color: t.textSecondary, fontSize: '14px', marginBottom: '20px', lineHeight: 1.5 }}>
                 Run the scoring engine to get the best reporter matches based on beat, availability, and workload.
               </p>
-              <button
-                onClick={fetchSuggestions}
-                disabled={loading}
-                style={{
-                  padding: '13px 32px',
-                  background: loading ? t.textMuted : t.accent,
-                  border: 'none',
-                  borderRadius: '8px',
-                  color: t.accentText,
-                  fontSize: '13px',
-                  fontWeight: '700',
-                  letterSpacing: '0.5px',
-                  cursor: loading ? 'not-allowed' : 'pointer',
-                  fontFamily: 'inherit',
-                  opacity: loading ? 0.7 : 1,
-                  transition: 'all 0.15s'
-                }}>
+              <button onClick={fetchSuggestions} disabled={loading}
+                style={{ padding: '13px 32px', background: loading ? t.textMuted : t.accent, border: 'none', borderRadius: '8px', color: t.accentText, fontSize: '13px', fontWeight: '700', letterSpacing: '0.5px', cursor: loading ? 'not-allowed' : 'pointer', fontFamily: 'inherit', opacity: loading ? 0.7 : 1, transition: 'all 0.15s' }}>
                 {loading ? 'SCORING...' : 'SCORE REPORTERS'}
               </button>
               {error && (
-                <p style={{
-                  color: t.danger,
-                  fontSize: '13px',
-                  marginTop: '14px',
-                  padding: '10px 16px',
-                  background: t.dangerBg,
-                  border: `1px solid ${t.dangerBorder}`,
-                  borderRadius: '8px'
-                }}>
+                <p style={{ color: t.danger, fontSize: '13px', marginTop: '14px', padding: '10px 16px', background: t.dangerBg, border: `1px solid ${t.dangerBorder}`, borderRadius: '8px' }}>
                   {error}
                 </p>
               )}
@@ -234,252 +193,139 @@ export default function AssignModal({ story, onClose, onAssigned }: Props) {
           ) : (
             <div>
 
-              {/* Section label */}
-              <p style={{
-                color: t.textMuted,
-                fontSize: '11px',
-                fontWeight: '700',
-                letterSpacing: '1px',
-                marginBottom: '16px'
-              }}>
-                TOP MATCHES — CLICK TO ASSIGN
-              </p>
+              {/* Normal suggestions — hidden when deadline is holiday */}
+              {!deadlineIsHoliday && (
+                <>
+                  <p style={{ color: t.textMuted, fontSize: '11px', fontWeight: '700', letterSpacing: '1px', marginBottom: '16px' }}>
+                    TOP MATCHES — CLICK TO ASSIGN
+                  </p>
 
-              {suggestions.length === 0 ? (
-                <div style={{
-                  color: t.textMuted,
-                  fontSize: '14px',
-                  textAlign: 'center',
-                  padding: '32px',
-                  border: `1px dashed ${t.borderCard}`,
-                  borderRadius: '8px',
-                  background: t.bgPage
-                }}>
-                  No eligible reporters available
-                </div>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '20px' }}>
-                  {suggestions.map((s, i) => (
-                    <div key={s.reporter_id} style={{
-                      padding: '16px',
-                      borderRadius: '8px',
-                      border: `2px solid ${i === 0 ? t.accentBorder : t.borderCard}`,
-                      background: i === 0 ? t.accentBg : t.bgPage,
-                      transition: 'all 0.15s'
-                    }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                          {i === 0 && (
-                            <span style={{
-                              padding: '3px 8px',
-                              borderRadius: '4px',
-                              fontSize: '10px',
-                              fontWeight: '700',
-                              background: t.accentBg,
-                              color: t.accent,
-                              border: `1px solid ${t.accentBorder}`
-                            }}>
-                              BEST
-                            </span>
-                          )}
-                          <span style={{ color: t.textPrimary, fontSize: '15px', fontWeight: '700' }}>
-                            {s.name}
-                          </span>
-                          <span style={{
-                            color: t.textMuted,
-                            fontSize: '12px',
-                            padding: '2px 8px',
-                            background: t.bgInput,
-                            borderRadius: '4px',
-                            border: `1px solid ${t.borderCard}`
-                          }}>
-                            {s.active_stories} active
-                          </span>
-                        </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                          <span style={{
-                            color: t.accent,
-                            fontSize: '22px',
-                            fontWeight: '800',
-                            minWidth: '40px',
-                            textAlign: 'right'
-                          }}>
-                            {Math.round(s.score * 100)}
-                          </span>
-                          <button
-                            onClick={() => assign(s.reporter_id)}
-                            disabled={!!assigning}
-                            style={{
-                              padding: '9px 20px',
-                              background: i === 0 ? t.accent : 'transparent',
-                              border: `2px solid ${i === 0 ? t.accent : t.borderCard}`,
-                              borderRadius: '6px',
-                              color: i === 0 ? t.accentText : t.textSecondary,
-                              fontSize: '12px',
-                              fontWeight: '700',
-                              letterSpacing: '0.5px',
-                              cursor: 'pointer',
-                              fontFamily: 'inherit',
-                              opacity: assigning ? 0.6 : 1,
-                              transition: 'all 0.15s'
-                            }}>
-                            {assigning === s.reporter_id ? '...' : 'ASSIGN'}
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* Score bars */}
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
-                        {[
-                          { label: 'Beat Match', value: s.beat_match },
-                          { label: 'Availability', value: s.availability },
-                          { label: 'Headroom', value: s.headroom }
-                        ].map(m => (
-                          <div key={m.label}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                              <span style={{ color: t.textMuted, fontSize: '11px', fontWeight: '500' }}>
-                                {m.label}
-                              </span>
-                              <span style={{
-                                color: getScoreBarColor(m.value),
-                                fontSize: '11px',
-                                fontWeight: '700'
-                              }}>
-                                {Math.round(m.value * 100)}%
+                  {suggestions.length === 0 ? (
+                    <div style={{ color: t.textMuted, fontSize: '14px', textAlign: 'center', padding: '32px', border: `1px dashed ${t.borderCard}`, borderRadius: '8px', background: t.bgPage }}>
+                      No eligible reporters available
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '20px' }}>
+                      {suggestions.map((s, i) => (
+                        <div key={s.reporter_id} style={{ padding: '16px', borderRadius: '8px', border: `2px solid ${i === 0 ? t.accentBorder : t.borderCard}`, background: i === 0 ? t.accentBg : t.bgPage, transition: 'all 0.15s' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                              {i === 0 && (
+                                <span style={{ padding: '3px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: '700', background: t.accentBg, color: t.accent, border: `1px solid ${t.accentBorder}` }}>
+                                  BEST
+                                </span>
+                              )}
+                              <span style={{ color: t.textPrimary, fontSize: '15px', fontWeight: '700' }}>{s.name}</span>
+                              <span style={{ color: t.textMuted, fontSize: '12px', padding: '2px 8px', background: t.bgInput, borderRadius: '4px', border: `1px solid ${t.borderCard}` }}>
+                                {s.active_stories} active
                               </span>
                             </div>
-                            <div style={{
-                              height: '5px',
-                              background: t.bgPage,
-                              borderRadius: '3px',
-                              border: `1px solid ${t.borderCard}`,
-                              overflow: 'hidden'
-                            }}>
-                              <div style={{
-                                height: '100%',
-                                borderRadius: '3px',
-                                background: getScoreBarColor(m.value),
-                                width: `${m.value * 100}%`,
-                                transition: 'width 0.5s'
-                              }} />
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                              <span style={{ color: t.accent, fontSize: '22px', fontWeight: '800', minWidth: '40px', textAlign: 'right' as const }}>
+                                {Math.round(s.score * 100)}
+                              </span>
+                              <button onClick={() => assign(s.reporter_id)} disabled={!!assigning}
+                                style={{ padding: '9px 20px', background: i === 0 ? t.accent : 'transparent', border: `2px solid ${i === 0 ? t.accent : t.borderCard}`, borderRadius: '6px', color: i === 0 ? t.accentText : t.textSecondary, fontSize: '12px', fontWeight: '700', letterSpacing: '0.5px', cursor: 'pointer', fontFamily: 'inherit', opacity: assigning ? 0.6 : 1, transition: 'all 0.15s' }}>
+                                {assigning === s.reporter_id ? '...' : 'ASSIGN'}
+                              </button>
                             </div>
                           </div>
-                        ))}
-                      </div>
+                          {/* Score bars */}
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
+                            {[
+                              { label: 'Beat Match', value: s.beat_match },
+                              { label: 'Availability', value: s.availability },
+                              { label: 'Headroom', value: s.headroom }
+                            ].map(m => (
+                              <div key={m.label}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                                  <span style={{ color: t.textMuted, fontSize: '11px', fontWeight: '500' }}>{m.label}</span>
+                                  <span style={{ color: getScoreBarColor(m.value), fontSize: '11px', fontWeight: '700' }}>{Math.round(m.value * 100)}%</span>
+                                </div>
+                                <div style={{ height: '5px', background: t.bgPage, borderRadius: '3px', border: `1px solid ${t.borderCard}`, overflow: 'hidden' }}>
+                                  <div style={{ height: '100%', borderRadius: '3px', background: getScoreBarColor(m.value), width: `${m.value * 100}%`, transition: 'width 0.5s' }} />
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
                     </div>
-                  ))}
-                </div>
+                  )}
+                </>
               )}
 
               {/* Override Section */}
-              <div style={{ borderTop: `1px solid ${t.borderCard}`, paddingTop: '16px' }}>
-                <button
-                  onClick={() => setShowAllReporters(!showAllReporters)}
-                  style={{
-                    width: '100%',
-                    padding: '11px',
-                    background: t.dangerBg,
-                    border: `1px solid ${t.dangerBorder}`,
-                    borderRadius: '8px',
-                    color: t.danger,
-                    fontSize: '12px',
-                    fontWeight: '700',
-                    letterSpacing: '0.5px',
-                    cursor: 'pointer',
-                    fontFamily: 'inherit',
-                    transition: 'all 0.15s'
-                  }}>
-                  {showAllReporters ? 'HIDE' : 'OVERRIDE ASSIGN'} — ASSIGN TO UNAVAILABLE REPORTER
-                </button>
+              <div style={{ borderTop: deadlineIsHoliday ? 'none' : `1px solid ${t.borderCard}`, paddingTop: deadlineIsHoliday ? '0' : '16px' }}>
 
-                {showAllReporters && (
-                  <div style={{ marginTop: '14px' }}>
-                    <div style={{
-                      padding: '12px 16px',
-                      background: t.dangerBg,
-                      border: `1px solid ${t.dangerBorder}`,
-                      borderRadius: '8px',
-                      marginBottom: '12px'
-                    }}>
-                      <p style={{ color: t.danger, fontSize: '12px', fontWeight: '500', margin: 0, lineHeight: 1.5 }}>
-                        Override assign allows you to assign a story to a reporter who is currently unavailable or on leave.
-                        The reporter must accept or reject with a valid reason.
-                      </p>
-                    </div>
-
+                {deadlineIsHoliday ? (
+                  // On holiday — show all reporters directly as override
+                  <div>
+                    <p style={{ color: t.danger, fontSize: '11px', fontWeight: '700', letterSpacing: '1px', marginBottom: '14px' }}>
+                      SELECT REPORTER — ALL ASSIGNMENTS REQUIRE OVERRIDE ON HOLIDAY
+                    </p>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                      {allReporters
-                        .filter(r => !suggestions.find(s => s.reporter_id === r.id))
-                        .map(r => (
-                          <div key={r.id} style={{
-                            padding: '14px 16px',
-                            borderRadius: '8px',
-                            border: `1px solid ${t.dangerBorder}`,
-                            background: t.bgPage,
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            alignItems: 'center'
-                          }}>
-                            <div>
-                              <div style={{
-                                color: t.textPrimary,
-                                fontSize: '14px',
-                                fontWeight: '700',
-                                marginBottom: '6px'
-                              }}>
-                                {r.name}
-                              </div>
-                              <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
-                                {r.beats.map((b: string) => (
-                                  <span key={b} style={{
-                                    padding: '2px 8px',
-                                    background: t.accentBg,
-                                    border: `1px solid ${t.accentBorder}`,
-                                    borderRadius: '4px',
-                                    color: t.accent,
-                                    fontSize: '10px',
-                                    fontWeight: '600'
-                                  }}>
-                                    {b}
-                                  </span>
-                                ))}
-                              </div>
+                      {allReporters.map(r => (
+                        <div key={r.id} style={{ padding: '14px 16px', borderRadius: '8px', border: `1px solid ${t.dangerBorder}`, background: t.bgPage, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <div>
+                            <div style={{ color: t.textPrimary, fontSize: '14px', fontWeight: '700', marginBottom: '6px' }}>{r.name}</div>
+                            <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                              {r.beats.map((b: string) => (
+                                <span key={b} style={{ padding: '2px 8px', background: t.accentBg, border: `1px solid ${t.accentBorder}`, borderRadius: '4px', color: t.accent, fontSize: '10px', fontWeight: '600' }}>{b}</span>
+                              ))}
                             </div>
-                            <button
-                              onClick={() => setOverrideModal(r)}
-                              style={{
-                                padding: '8px 16px',
-                                background: t.dangerBg,
-                                border: `1px solid ${t.dangerBorder}`,
-                                borderRadius: '6px',
-                                color: t.danger,
-                                fontSize: '11px',
-                                fontWeight: '700',
-                                letterSpacing: '0.5px',
-                                cursor: 'pointer',
-                                fontFamily: 'inherit',
-                                whiteSpace: 'nowrap',
-                                marginLeft: '12px'
-                              }}>
-                              OVERRIDE
-                            </button>
                           </div>
-                        ))}
-                      {allReporters.filter(r => !suggestions.find(s => s.reporter_id === r.id)).length === 0 && (
-                        <p style={{
-                          color: t.textMuted,
-                          fontSize: '13px',
-                          textAlign: 'center',
-                          padding: '16px',
-                          background: t.bgPage,
-                          borderRadius: '8px',
-                          border: `1px solid ${t.borderCard}`
-                        }}>
-                          All reporters are already in the suggestions list
-                        </p>
-                      )}
+                          <button onClick={() => setOverrideModal(r)}
+                            style={{ padding: '8px 16px', background: t.dangerBg, border: `1px solid ${t.dangerBorder}`, borderRadius: '6px', color: t.danger, fontSize: '11px', fontWeight: '700', letterSpacing: '0.5px', cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap', marginLeft: '12px' }}>
+                            OVERRIDE
+                          </button>
+                        </div>
+                      ))}
                     </div>
                   </div>
+                ) : (
+                  // Normal override section
+                  <>
+                    <button onClick={() => setShowAllReporters(!showAllReporters)}
+                      style={{ width: '100%', padding: '11px', background: t.dangerBg, border: `1px solid ${t.dangerBorder}`, borderRadius: '8px', color: t.danger, fontSize: '12px', fontWeight: '700', letterSpacing: '0.5px', cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.15s' }}>
+                      {showAllReporters ? 'HIDE' : 'OVERRIDE ASSIGN'} — ASSIGN TO UNAVAILABLE REPORTER
+                    </button>
+
+                    {showAllReporters && (
+                      <div style={{ marginTop: '14px' }}>
+                        <div style={{ padding: '12px 16px', background: t.dangerBg, border: `1px solid ${t.dangerBorder}`, borderRadius: '8px', marginBottom: '12px' }}>
+                          <p style={{ color: t.danger, fontSize: '12px', fontWeight: '500', margin: 0, lineHeight: 1.5 }}>
+                            Override assign allows you to assign a story to a reporter who is currently unavailable or on leave. The reporter must accept or reject with a valid reason.
+                          </p>
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                          {allReporters
+                            .filter(r => !suggestions.find(s => s.reporter_id === r.id))
+                            .map(r => (
+                              <div key={r.id} style={{ padding: '14px 16px', borderRadius: '8px', border: `1px solid ${t.dangerBorder}`, background: t.bgPage, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <div>
+                                  <div style={{ color: t.textPrimary, fontSize: '14px', fontWeight: '700', marginBottom: '6px' }}>{r.name}</div>
+                                  <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                                    {r.beats.map((b: string) => (
+                                      <span key={b} style={{ padding: '2px 8px', background: t.accentBg, border: `1px solid ${t.accentBorder}`, borderRadius: '4px', color: t.accent, fontSize: '10px', fontWeight: '600' }}>{b}</span>
+                                    ))}
+                                  </div>
+                                </div>
+                                <button onClick={() => setOverrideModal(r)}
+                                  style={{ padding: '8px 16px', background: t.dangerBg, border: `1px solid ${t.dangerBorder}`, borderRadius: '6px', color: t.danger, fontSize: '11px', fontWeight: '700', letterSpacing: '0.5px', cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap', marginLeft: '12px' }}>
+                                  OVERRIDE
+                                </button>
+                              </div>
+                            ))}
+                          {allReporters.filter(r => !suggestions.find(s => s.reporter_id === r.id)).length === 0 && (
+                            <p style={{ color: t.textMuted, fontSize: '13px', textAlign: 'center', padding: '16px', background: t.bgPage, borderRadius: '8px', border: `1px solid ${t.borderCard}` }}>
+                              All reporters are already in the suggestions list
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             </div>
@@ -489,38 +335,14 @@ export default function AssignModal({ story, onClose, onAssigned }: Props) {
 
       {/* Override Reason Modal */}
       {overrideModal && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-label="Override assignment reason"
-          style={{
-            position: 'fixed', inset: 0,
-            background: t.overlayBg,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            zIndex: 2000
-          }}
+        <div role="dialog" aria-modal="true" aria-label="Override assignment reason"
+          style={{ position: 'fixed', inset: 0, background: t.overlayBg, display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 }}
           onClick={e => { if (e.target === e.currentTarget) { setOverrideModal(null); setOverrideReason('') } }}>
-          <div style={{
-            background: t.bgCard,
-            border: `1px solid ${t.dangerBorder}`,
-            borderRadius: '12px',
-            width: '100%',
-            maxWidth: '460px',
-            margin: '24px',
-            padding: '28px',
-            fontFamily: 'inherit',
-            boxShadow: t.shadow
-          }}>
+          <div style={{ background: t.bgCard, border: `1px solid ${t.dangerBorder}`, borderRadius: '12px', width: '100%', maxWidth: '460px', margin: '24px', padding: '28px', fontFamily: 'inherit', boxShadow: t.shadow }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', alignItems: 'center' }}>
-              <h2 style={{ color: t.textPrimary, margin: 0, fontSize: '18px', fontWeight: '700' }}>
-                Override Assignment
-              </h2>
-              <button
-                onClick={() => { setOverrideModal(null); setOverrideReason('') }}
-                aria-label="Close"
-                style={{ background: 'none', border: 'none', color: t.textMuted, fontSize: '22px', cursor: 'pointer' }}>
-                x
-              </button>
+              <h2 style={{ color: t.textPrimary, margin: 0, fontSize: '18px', fontWeight: '700' }}>Override Assignment</h2>
+              <button onClick={() => { setOverrideModal(null); setOverrideReason('') }}
+                style={{ background: 'none', border: 'none', color: t.textMuted, fontSize: '22px', cursor: 'pointer' }}>x</button>
             </div>
 
             <p style={{ color: t.textMuted, fontSize: '13px', margin: '0 0 4px' }}>
@@ -530,67 +352,38 @@ export default function AssignModal({ story, onClose, onAssigned }: Props) {
               Assigning to: <span style={{ color: t.danger, fontWeight: '600' }}>{overrideModal.name}</span>
             </p>
 
-            <div style={{
-              padding: '12px 16px',
-              background: t.warningBg,
-              border: `1px solid ${t.warningBorder}`,
-              borderRadius: '8px',
-              marginBottom: '16px'
-            }}>
+            {/* Extra warning if holiday */}
+            {deadlineIsHoliday && (
+              <div style={{ padding: '10px 14px', background: t.dangerBg, border: `1px solid ${t.dangerBorder}`, borderRadius: '8px', marginBottom: '12px' }}>
+                <p style={{ color: t.danger, fontSize: '12px', fontWeight: '700', margin: '0 0 2px' }}>⚠ Public Holiday: {holidayName}</p>
+                <p style={{ color: t.textMuted, fontSize: '12px', margin: 0 }}>Deadline falls on a public holiday. Reporter will be notified.</p>
+              </div>
+            )}
+
+            <div style={{ padding: '12px 16px', background: t.warningBg, border: `1px solid ${t.warningBorder}`, borderRadius: '8px', marginBottom: '16px' }}>
               <p style={{ color: t.warning, fontSize: '12px', fontWeight: '500', margin: 0, lineHeight: 1.5 }}>
-                This reporter is currently unavailable or on leave. They will be notified and must accept or reject this assignment with a valid reason.
+                {deadlineIsHoliday
+                  ? 'This assignment is on a public holiday. Reporter must accept or reject with a valid reason.'
+                  : 'This reporter is currently unavailable or on leave. They will be notified and must accept or reject this assignment with a valid reason.'}
               </p>
             </div>
 
             <div style={{ marginBottom: '16px' }}>
-              <label style={{
-                color: t.textSecondary,
-                fontSize: '12px',
-                fontWeight: '600',
-                display: 'block',
-                marginBottom: '6px'
-              }}>
+              <label style={{ color: t.textSecondary, fontSize: '12px', fontWeight: '600', display: 'block', marginBottom: '6px' }}>
                 REASON FOR OVERRIDE <span style={{ color: t.danger }}>*required</span>
               </label>
-              <textarea
-                value={overrideReason}
-                onChange={e => setOverrideReason(e.target.value)}
-                rows={3}
-                placeholder="e.g. Urgent breaking news, no other reporters available for this beat..."
-                style={inputStyle}
-              />
+              <textarea value={overrideReason} onChange={e => setOverrideReason(e.target.value)} rows={3}
+                placeholder={deadlineIsHoliday ? 'e.g. Breaking news requires coverage on this holiday...' : 'e.g. Urgent breaking news, no other reporters available for this beat...'}
+                style={inputStyle} />
             </div>
 
             <div style={{ display: 'flex', gap: '8px' }}>
-              <button
-                onClick={() => { setOverrideModal(null); setOverrideReason('') }}
-                style={{
-                  flex: 1, padding: '12px',
-                  background: 'transparent',
-                  border: `1px solid ${t.borderCard}`,
-                  borderRadius: '8px',
-                  color: t.textMuted,
-                  fontSize: '13px',
-                  cursor: 'pointer',
-                  fontFamily: 'inherit'
-                }}>
+              <button onClick={() => { setOverrideModal(null); setOverrideReason('') }}
+                style={{ flex: 1, padding: '12px', background: 'transparent', border: `1px solid ${t.borderCard}`, borderRadius: '8px', color: t.textMuted, fontSize: '13px', cursor: 'pointer', fontFamily: 'inherit' }}>
                 CANCEL
               </button>
-              <button
-                onClick={overrideAssign}
-                disabled={!overrideReason.trim() || overrideLoading}
-                style={{
-                  flex: 1, padding: '12px',
-                  background: overrideReason.trim() ? t.dangerBg : t.bgInput,
-                  border: `1px solid ${overrideReason.trim() ? t.dangerBorder : t.borderCard}`,
-                  borderRadius: '8px',
-                  color: overrideReason.trim() ? t.danger : t.textDisabled,
-                  fontSize: '13px',
-                  fontWeight: '700',
-                  cursor: overrideReason.trim() ? 'pointer' : 'not-allowed',
-                  fontFamily: 'inherit',
-                  opacity: overrideLoading ? 0.6 : overrideReason.trim() ? 1 : 0.5
-                }}>
+              <button onClick={overrideAssign} disabled={!overrideReason.trim() || overrideLoading}
+                style={{ flex: 1, padding: '12px', background: overrideReason.trim() ? t.dangerBg : t.bgInput, border: `1px solid ${overrideReason.trim() ? t.dangerBorder : t.borderCard}`, borderRadius: '8px', color: overrideReason.trim() ? t.danger : t.textDisabled, fontSize: '13px', fontWeight: '700', cursor: overrideReason.trim() ? 'pointer' : 'not-allowed', fontFamily: 'inherit', opacity: overrideLoading ? 0.6 : overrideReason.trim() ? 1 : 0.5 }}>
                 {overrideLoading ? 'ASSIGNING...' : 'CONFIRM OVERRIDE'}
               </button>
             </div>

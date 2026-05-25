@@ -3,10 +3,12 @@ import { supabase } from "../lib/supabase"
 import Navbar from "../components/Navbar"
 import AssignModal from "../components/AssignModal"
 import { useTheme } from "../context/ThemeContext"
+import { useDateFormat } from '../context/DateFormatContext'
 import { useCollapse } from "../hooks/useCollapse"
 
 export default function KanbanBoard() {
   const { t } = useTheme()
+  const { formatDate } = useDateFormat()
   const { toggle, isCollapsed } = useCollapse('kanban', [
     'unassigned', 'assigned', 'in_progress', 'filed', 'published'
   ])
@@ -249,7 +251,7 @@ export default function KanbanBoard() {
                           {/* Category + Deadline */}
                           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "8px" }}>
                             <span style={{ color: t.textMuted, fontSize: "11px", fontWeight: "500" }}>{story.category}</span>
-                            <span style={{ color: t.textMuted, fontSize: "11px" }}>{story.deadline}</span>
+                            <span style={{ color: t.textMuted, fontSize: "11px" }}>{formatDate(story.deadline)}</span>
                           </div>
 
                           {/* Reporter badge */}
@@ -411,11 +413,11 @@ export default function KanbanBoard() {
                 <p style={{ color: t.textMuted, fontSize: "12px", margin: "0 0 4px" }}>
                   By: <span style={{ color: t.textSecondary, fontWeight: "600" }}>{assignMap[viewFile.id]}</span>
                   {viewFile.filed_at && (
-                    <span style={{ marginLeft: "8px" }}>— {new Date(viewFile.filed_at).toLocaleDateString()}</span>
+                    <span style={{ marginLeft: "8px" }}>— {formatDate(viewFile.filed_at)}</span>
                   )}
                 </p>
                 <div style={{ display: "flex", gap: "16px", marginTop: "8px", flexWrap: "wrap" }}>
-                  <span style={{ color: t.textMuted, fontSize: "12px" }}>Deadline: <span style={{ color: t.textSecondary, fontWeight: "500" }}>{viewFile.deadline}</span></span>
+                  <span style={{ color: t.textMuted, fontSize: "12px" }}>Deadline: <span style={{ color: t.textSecondary, fontWeight: "500" }}>{formatDate(viewFile.deadline)}</span></span>
                   <span style={{ color: t.textMuted, fontSize: "12px" }}>Complexity: <span style={{ color: t.textSecondary, fontWeight: "500" }}>{viewFile.complexity}/5</span></span>
                   <span style={{ color: t.textMuted, fontSize: "12px" }}>Priority: <span style={{ color: t.textSecondary, fontWeight: "500" }}>P{viewFile.priority}</span></span>
                 </div>

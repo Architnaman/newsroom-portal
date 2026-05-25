@@ -3,11 +3,13 @@ import { supabase } from '../lib/supabase'
 import Navbar from '../components/Navbar'
 import AssignModal from '../components/AssignModal'
 import { useTheme } from '../context/ThemeContext'
+import { useDateFormat } from '../context/DateFormatContext'
 import { useCollapse } from '../hooks/useCollapse'
 import SectionCard from '../components/SectionCard'
 
 export default function EditorDashboard() {
   const { t } = useTheme()
+  const { formatDate } = useDateFormat()
   const { toggle, isCollapsed } = useCollapse('editor-dashboard', [
     'stats', 'filing-requests', 'override-responses', 'stories', 'leave-alerts'
   ])
@@ -235,7 +237,7 @@ export default function EditorDashboard() {
         {/* Week indicator */}
         <div style={{ marginBottom: '24px', padding: '10px 16px', background: t.accentBg, border: `1px solid ${t.accentBorder}`, borderRadius: '8px', display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
           <span style={{ color: t.accent, fontSize: '13px', fontWeight: '600' }}>
-            CURRENT WEEK: {weekStart} to {weekEnd}
+            CURRENT WEEK: {formatDate(weekStart)} to {formatDate(weekEnd)}
           </span>
         </div>
 
@@ -280,7 +282,7 @@ export default function EditorDashboard() {
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
                       <span style={{ color: t.textPrimary, fontSize: '14px', fontWeight: '600' }}>{req.reporter_name}</span>
                       <span style={{ padding: '2px 8px', borderRadius: '4px', fontSize: '10px', background: t.accentBg, color: t.accent, fontWeight: '600' }}>{req.leave_type?.toUpperCase()}</span>
-                      <span style={{ color: t.textSecondary, fontSize: '13px', fontWeight: '500' }}>{req.requested_date}</span>
+                      <span style={{ color: t.textSecondary, fontSize: '13px', fontWeight: '500' }}>{formatDate(req.requested_date)}</span>
                     </div>
                     <p style={{ color: t.textMuted, fontSize: '12px', margin: 0 }}>Reason: {req.reason}</p>
                   </div>
@@ -365,7 +367,7 @@ export default function EditorDashboard() {
                         {story.headline}
                       </div>
                       <div style={{ color: t.textMuted, fontSize: '12px' }}>
-                        Due {story.deadline}
+                        Due {formatDate(story.deadline)}
                         {story.reporter_name && <span style={{ color: t.textSecondary, fontWeight: '500' }}> · {story.reporter_name}</span>}
                       </div>
                     </div>
@@ -406,7 +408,7 @@ export default function EditorDashboard() {
                         {alert.leave_type?.toUpperCase()}
                       </span>
                     </div>
-                    <div style={{ color: t.textSecondary, fontSize: '13px', marginBottom: '4px', fontWeight: '500' }}>{alert.leave_date}</div>
+                    <div style={{ color: t.textSecondary, fontSize: '13px', marginBottom: '4px', fontWeight: '500' }}>{formatDate(alert.leave_date)}</div>
                     {alert.notes && (
                       <div style={{ color: t.textMuted, fontSize: '12px', marginBottom: '10px', fontStyle: 'italic' }}>
                         "{alert.notes}"
@@ -441,7 +443,7 @@ export default function EditorDashboard() {
               </div>
               <div>
                 <label style={{ color: t.textSecondary, fontSize: '12px', fontWeight: '600', display: 'block', marginBottom: '6px' }}>
-                  DEADLINE <span style={{ color: t.textMuted, fontWeight: '400' }}>({weekStart} to {weekEnd})</span>
+                  DEADLINE <span style={{ color: t.textMuted, fontWeight: '400' }}>({formatDate(weekStart)} to {formatDate(weekEnd)})</span>
                 </label>
                 <input type="date" value={form.deadline} min={weekStart} max={weekEnd} onChange={e => setForm(p => ({ ...p, deadline: e.target.value }))} style={{ ...inputStyle, colorScheme: 'dark' }} />
               </div>

@@ -3,30 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import Navbar from '../components/Navbar'
 import { useTheme } from '../context/ThemeContext'
-import { useCollapse } from '../hooks/useCollapse'
-import SectionCard from '../components/SectionCard'
-
-const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
-
-function getCurrentWeekStart(): string {
-  const d = new Date()
-  const day = d.getDay()
-  const diff = d.getDate() - day + (day === 0 ? -6 : 1)
-  d.setDate(diff)
-  return d.toISOString().split('T')[0]
-}
-
-function getCurrentWeekDates(): Record<string, string> {
-  const weekStart = getCurrentWeekStart()
-  const dates: Record<string, string> = {}
-  const d = new Date(weekStart + 'T00:00:00Z')
-  DAYS.forEach((day, i) => {
-    const date = new Date(d)
-    date.setUTCDate(d.getUTCDate() + i)
-    dates[day] = date.toISOString().split('T')[0]
-  })
-  return dates
-}
+import { useDateFormat } from '../context/DateFormatContext'
 
 function getTodayStr(): string {
   return new Date().toISOString().split('T')[0]
@@ -38,60 +15,65 @@ function isPast(dateStr: string): boolean {
 
 export default function ReporterRoster() {
   const { t } = useTheme()
+  const { formatDate, getWeekStart, getWeekDates, weekStartDay } = useDateFormat()
   const navigate = useNavigate()
+
+  const DAYS = weekStartDay === 'sunday'
+    ? ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+    : ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+
+  const weekStart = getWeekStart()
+  const weekDates = getWeekDates()
+  const today = getTodayStr()
 
   const [reporters, setReporters] = useState<any[]>([])
   const [availability, setAvailability] = useState<any[]>([])
   const [assignments, setAssignments] = useState<any[]>([])
   const [leaves, setLeaves] = useState<any[]>([])
+  const [holidays, setHolidays] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
 
-  const weekStart = getCurrentWeekStart()
-  const weekDates = getCurrentWeekDates()
-  const today = getTodayStr()
+  async function load() {
+    const weekEnd = (() => {
+      const d = new Date(weekStart + 'T00:00:00')
+      d.setDate(d.getDate() + 6)
+      return d.toISOString().split('T')[0]
+    })()
 
-async function load() {
-  const weekEnd = (() => {
-    const d = new Date(weekStart + 'T00:00:00')
-    d.setDate(d.getDate() + 6)
-    return d.toISOString().split('T')[0]
-  })()
+    const [
+      { data: r },
+      { data: a },
+      { data: ass },
+      { data: l },
+      { data: h }
+    ] = await Promise.all([
+      supabase.from('reporters').select('*').eq('status', 'active').order('name'),
+      supabase.from('availability').select('*').eq('week_start_date', weekStart),
+      supabase.from('assignments')
+        .select('reporter_id')
+        .eq('is_active', true),
+      supabase.from('leave_requests').select('*').in('status', ['pending', 'acknowledged']),
+      supabase.from('holidays').select('*'),
+    ])
 
-  const [
-    { data: r },
-    { data: a },
-    { data: ass },
-    { data: l }
-  ] = await Promise.all([
-    supabase.from('reporters').select('*').eq('status', 'active').order('name'),
-    supabase.from('availability').select('*').eq('week_start_date', weekStart),
-    // FIXED: only count current week active stories that are not filed/published
-    supabase.from('assignments')
-      .select('reporter_id, stories!inner(deadline, status)')
-      .eq('is_active', true)
-      .gte('stories.deadline', weekStart)
-      .lte('stories.deadline', weekEnd)
-      .not('stories.status', 'in', '("filed","published")'),
-    supabase.from('leave_requests').select('*').in('status', ['pending', 'acknowledged'])
-  ])
-
-  setReporters(r || [])
-  setAvailability(a || [])
-  setAssignments(ass || [])
-  setLeaves(l || [])
-  setLoading(false)
-}
+    setReporters(r || [])
+    setAvailability(a || [])
+    setAssignments(ass || [])
+    setLeaves(l || [])
+    setHolidays(h || [])
+    setLoading(false)
+  }
 
   useEffect(() => { load() }, [])
 
+  // Build availability map — default Mon-Fri, override with actual
   const availMap: Record<string, string[]> = {}
-// FIXED: if no availability row exists for this week, default to Mon-Fri available
-reporters.forEach(r => {
-  availMap[r.id] = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'] // default
-})
-availability.forEach(a => {
-  availMap[a.reporter_id] = a.available_days // override with actual if exists
-})
+  reporters.forEach(r => {
+    availMap[r.id] = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
+  })
+  availability.forEach(a => {
+    availMap[a.reporter_id] = a.available_days
+  })
 
   const countMap: Record<string, number> = {}
   assignments.forEach(a => { countMap[a.reporter_id] = (countMap[a.reporter_id] || 0) + 1 })
@@ -102,10 +84,17 @@ availability.forEach(a => {
     leaveMap[l.reporter_id].push({ date: l.leave_date, status: l.status })
   })
 
+  function isHoliday(dateStr: string): boolean {
+    return holidays.some((h: any) => h.date.split('T')[0] === dateStr)
+  }
+
   function getDayStatus(reporterId: string, day: string) {
     const dateForDay = weekDates[day]
-    // FIXED: weekends always unavailable
+    if (!dateForDay) return 'unavailable'
+    // Weekends always unavailable
     if (day === 'Sat' || day === 'Sun') return 'unavailable'
+    // Holiday — blocks availability for everyone
+    if (isHoliday(dateForDay)) return 'holiday'
     const reporterLeaves = leaveMap[reporterId] || []
     const leaveOnDay = reporterLeaves.find(l => l.date === dateForDay)
     if (leaveOnDay?.status === 'acknowledged') return 'leave_approved'
@@ -118,20 +107,17 @@ availability.forEach(a => {
 
   function getDayCell(status: string, isToday_: boolean) {
     const base = {
-      width: '32px',
-      height: '32px',
-      borderRadius: '6px',
-      margin: '0 auto',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      fontSize: '10px',
-      fontWeight: '700' as const,
+      width: '32px', height: '32px', borderRadius: '6px',
+      margin: '0 auto', display: 'flex',
+      alignItems: 'center', justifyContent: 'center',
+      fontSize: '10px', fontWeight: '700' as const,
       border: '2px solid',
       outline: isToday_ ? `2px solid ${t.accent}` : 'none',
       outlineOffset: '2px',
     }
     switch (status) {
+      case 'holiday':
+        return { ...base, background: t.dangerBg, borderColor: t.dangerBorder, color: t.danger, content: 'H' }
       case 'available':
         return { ...base, background: t.successBg, borderColor: t.successBorder, color: t.success, content: '✓' }
       case 'leave_approved':
@@ -146,28 +132,21 @@ availability.forEach(a => {
   }
 
   const thStyle: React.CSSProperties = {
-    fontSize: '11px',
-    fontWeight: '600',
-    letterSpacing: '0.5px',
-    padding: '0 8px 14px',
-    textAlign: 'left' as const,
-    color: t.textMuted,
-    whiteSpace: 'nowrap' as const,
+    fontSize: '11px', fontWeight: '600', letterSpacing: '0.5px',
+    padding: '0 8px 14px', textAlign: 'left' as const,
+    color: t.textMuted, whiteSpace: 'nowrap' as const,
   }
 
   const tdBase: React.CSSProperties = {
-    padding: '14px 16px',
-    background: t.bgCard,
+    padding: '14px 16px', background: t.bgCard,
     border: `1px solid ${t.borderCard}`,
-    borderLeft: 'none',
-    borderRight: 'none',
+    borderLeft: 'none', borderRight: 'none',
     verticalAlign: 'middle',
   }
 
   return (
     <div style={{
-      minHeight: '100vh',
-      background: t.bgPage,
+      minHeight: '100vh', background: t.bgPage,
       fontFamily: '"Inter", "DM Mono", "Courier New", monospace',
       color: t.textPrimary
     }}>
@@ -181,34 +160,29 @@ availability.forEach(a => {
               Reporter Roster
             </h1>
             <p style={{ color: t.textMuted, margin: 0, fontSize: '13px' }}>
-              Week of {weekStart} — Today is <span style={{ color: t.accent, fontWeight: '600' }}>{today}</span>
+              Week of {formatDate(weekStart)} — Today is <span style={{ color: t.accent, fontWeight: '600' }}>{formatDate(today)}</span>
             </p>
           </div>
 
           {/* Legend */}
           <div style={{
-            display: 'flex',
-            gap: '12px',
-            flexWrap: 'wrap',
-            alignItems: 'center',
-            padding: '10px 16px',
-            background: t.bgCard,
-            borderRadius: '8px',
-            border: `1px solid ${t.borderCard}`,
+            display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center',
+            padding: '10px 16px', background: t.bgCard,
+            borderRadius: '8px', border: `1px solid ${t.borderCard}`,
             boxShadow: t.shadowCard
           }}>
             {[
-              { color: t.success, border: t.successBorder, label: 'Available', symbol: '✓' },
-              { color: t.textDisabled, border: t.borderCard, label: 'Unavailable', symbol: '' },
-              { color: t.textDisabled, border: t.borderCard, label: 'Past', symbol: '–', dim: true },
-              { color: t.warning, border: t.warningBorder, label: 'Leave Pending', symbol: '?' },
-              { color: t.danger, border: t.dangerBorder, label: 'Leave Approved', symbol: 'L' },
+              { color: t.success,      border: t.successBorder, label: 'Available',     symbol: '✓' },
+              { color: t.textDisabled, border: t.borderCard,    label: 'Unavailable',   symbol: '',  dim: false },
+              { color: t.textDisabled, border: t.borderCard,    label: 'Past',          symbol: '–', dim: true  },
+              { color: t.warning,      border: t.warningBorder, label: 'Leave Pending', symbol: '?' },
+              { color: t.danger,       border: t.dangerBorder,  label: 'Leave Approved',symbol: 'L' },
+              { color: t.danger,       border: t.dangerBorder,  label: 'Holiday',       symbol: 'H' },
             ].map(item => (
               <div key={item.label} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <div style={{
                   width: '20px', height: '20px', borderRadius: '5px',
-                  background: `${item.color}15`,
-                  border: `2px solid ${item.border}`,
+                  background: `${item.color}15`, border: `2px solid ${item.border}`,
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                   fontSize: '9px', color: item.color, fontWeight: '700',
                   opacity: item.dim ? 0.5 : 1
@@ -221,10 +195,8 @@ availability.forEach(a => {
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
               <div style={{
                 width: '20px', height: '20px', borderRadius: '5px',
-                background: t.accentBg,
-                border: `2px solid ${t.accent}`,
-                outline: `2px solid ${t.accent}`,
-                outlineOffset: '1px'
+                background: t.accentBg, border: `2px solid ${t.accent}`,
+                outline: `2px solid ${t.accent}`, outlineOffset: '1px'
               }} />
               <span style={{ color: t.textMuted, fontSize: '11px', fontWeight: '500' }}>Today</span>
             </div>
@@ -232,27 +204,11 @@ availability.forEach(a => {
         </div>
 
         {loading ? (
-          <div style={{
-            color: t.textMuted,
-            textAlign: 'center',
-            padding: '80px',
-            fontSize: '14px',
-            background: t.bgCard,
-            borderRadius: '10px',
-            border: `1px solid ${t.borderCard}`
-          }}>
+          <div style={{ color: t.textMuted, textAlign: 'center', padding: '80px', fontSize: '14px', background: t.bgCard, borderRadius: '10px', border: `1px solid ${t.borderCard}` }}>
             Loading roster...
           </div>
         ) : reporters.length === 0 ? (
-          <div style={{
-            color: t.textDisabled,
-            textAlign: 'center',
-            padding: '80px',
-            border: `1px dashed ${t.borderCard}`,
-            borderRadius: '10px',
-            fontSize: '14px',
-            background: t.bgCard
-          }}>
+          <div style={{ color: t.textDisabled, textAlign: 'center', padding: '80px', border: `1px dashed ${t.borderCard}`, borderRadius: '10px', fontSize: '14px', background: t.bgCard }}>
             No active reporters found
           </div>
         ) : (
@@ -264,9 +220,7 @@ availability.forEach(a => {
                   <th style={{ ...thStyle, textAlign: 'left' }}>BEATS</th>
                   {DAYS.map(d => (
                     <th key={d} style={{
-                      ...thStyle,
-                      textAlign: 'center',
-                      minWidth: '48px',
+                      ...thStyle, textAlign: 'center', minWidth: '48px',
                       color: weekDates[d] === today ? t.accent : t.textMuted,
                       fontWeight: weekDates[d] === today ? '700' : '600',
                     }}>
@@ -293,13 +247,7 @@ availability.forEach(a => {
                     <tr key={reporter.id}>
 
                       {/* Reporter Info */}
-                      <td style={{
-                        ...tdBase,
-                        borderRadius: '8px 0 0 8px',
-                        borderLeft: `1px solid ${t.borderCard}`,
-                        paddingLeft: '16px',
-                        minWidth: '160px'
-                      }}>
+                      <td style={{ ...tdBase, borderRadius: '8px 0 0 8px', borderLeft: `1px solid ${t.borderCard}`, paddingLeft: '16px', minWidth: '160px' }}>
                         <div style={{ color: t.textPrimary, fontSize: '14px', fontWeight: '700', marginBottom: '3px' }}>
                           {reporter.name}
                         </div>
@@ -313,13 +261,9 @@ availability.forEach(a => {
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
                           {reporter.beats.length > 0 ? reporter.beats.map((b: string) => (
                             <span key={b} style={{
-                              padding: '3px 8px',
-                              background: t.accentBg,
-                              border: `1px solid ${t.accentBorder}`,
-                              borderRadius: '4px',
-                              color: t.accent,
-                              fontSize: '10px',
-                              fontWeight: '600'
+                              padding: '3px 8px', background: t.accentBg,
+                              border: `1px solid ${t.accentBorder}`, borderRadius: '4px',
+                              color: t.accent, fontSize: '10px', fontWeight: '600'
                             }}>
                               {b}
                             </span>
@@ -335,25 +279,15 @@ availability.forEach(a => {
                         const isToday_ = weekDates[day] === today
                         const cellStyle = getDayCell(status, isToday_)
                         return (
-                          <td key={day} style={{
-                            ...tdBase,
-                            padding: '8px 4px',
-                            textAlign: 'center',
-                          }}>
+                          <td key={day} style={{ ...tdBase, padding: '8px 4px', textAlign: 'center' }}>
                             <div style={{
-                              width: cellStyle.width,
-                              height: cellStyle.height,
-                              borderRadius: cellStyle.borderRadius,
-                              margin: cellStyle.margin,
-                              display: cellStyle.display,
-                              alignItems: cellStyle.alignItems,
+                              width: cellStyle.width, height: cellStyle.height,
+                              borderRadius: cellStyle.borderRadius, margin: cellStyle.margin,
+                              display: cellStyle.display, alignItems: cellStyle.alignItems,
                               justifyContent: cellStyle.justifyContent,
-                              background: cellStyle.background,
-                              border: cellStyle.border,
-                              color: cellStyle.color,
-                              fontSize: cellStyle.fontSize,
-                              fontWeight: cellStyle.fontWeight,
-                              outline: cellStyle.outline,
+                              background: cellStyle.background, border: cellStyle.border,
+                              color: cellStyle.color, fontSize: cellStyle.fontSize,
+                              fontWeight: cellStyle.fontWeight, outline: cellStyle.outline,
                               outlineOffset: cellStyle.outlineOffset,
                             }}>
                               {cellStyle.content}
@@ -364,11 +298,7 @@ availability.forEach(a => {
 
                       {/* Story Count */}
                       <td style={{ ...tdBase, textAlign: 'center', minWidth: '80px' }}>
-                        <span style={{
-                          color: active > 0 ? t.accent : t.textDisabled,
-                          fontSize: '18px',
-                          fontWeight: '800'
-                        }}>
+                        <span style={{ color: active > 0 ? t.accent : t.textDisabled, fontSize: '18px', fontWeight: '800' }}>
                           {active}
                         </span>
                         <span style={{ color: t.textDisabled, fontSize: '12px', fontWeight: '500' }}>
@@ -378,65 +308,28 @@ availability.forEach(a => {
 
                       {/* Capacity Bar */}
                       <td style={{ ...tdBase, minWidth: '100px', padding: '14px 16px' }}>
-                        <div style={{
-                          height: '6px',
-                          background: t.bgPage,
-                          borderRadius: '3px',
-                          border: `1px solid ${t.borderCard}`,
-                          overflow: 'hidden'
-                        }}>
-                          <div style={{
-                            height: '100%',
-                            borderRadius: '3px',
-                            background: capacityColor,
-                            width: `${Math.min(capacityPct, 100)}%`,
-                            transition: 'width 0.5s'
-                          }} />
+                        <div style={{ height: '6px', background: t.bgPage, borderRadius: '3px', border: `1px solid ${t.borderCard}`, overflow: 'hidden' }}>
+                          <div style={{ height: '100%', borderRadius: '3px', background: capacityColor, width: `${Math.min(capacityPct, 100)}%`, transition: 'width 0.5s' }} />
                         </div>
-                        <div style={{
-                          color: capacityColor,
-                          fontSize: '11px',
-                          fontWeight: '700',
-                          marginTop: '4px',
-                          textAlign: 'right'
-                        }}>
+                        <div style={{ color: capacityColor, fontSize: '11px', fontWeight: '700', marginTop: '4px', textAlign: 'right' }}>
                           {Math.round(capacityPct)}%
                         </div>
                       </td>
 
                       {/* VIEW AS button */}
-                      <td style={{
-                        ...tdBase,
-                        borderRadius: '0 8px 8px 0',
-                        borderRight: `1px solid ${t.borderCard}`,
-                        textAlign: 'center',
-                        padding: '8px 16px'
-                      }}>
+                      <td style={{ ...tdBase, borderRadius: '0 8px 8px 0', borderRight: `1px solid ${t.borderCard}`, textAlign: 'center', padding: '8px 16px' }}>
                         <button
                           onClick={() => navigate(`/reporter-view/${reporter.id}`)}
                           aria-label={`View ${reporter.name}'s dashboard`}
                           style={{
-                            padding: '8px 16px',
-                            background: t.accentBg,
-                            border: `1px solid ${t.accentBorder}`,
-                            borderRadius: '6px',
-                            color: t.accent,
-                            fontSize: '11px',
-                            fontWeight: '700',
-                            letterSpacing: '0.5px',
-                            cursor: 'pointer',
-                            fontFamily: 'inherit',
-                            whiteSpace: 'nowrap',
-                            transition: 'all 0.15s'
+                            padding: '8px 16px', background: t.accentBg,
+                            border: `1px solid ${t.accentBorder}`, borderRadius: '6px',
+                            color: t.accent, fontSize: '11px', fontWeight: '700',
+                            letterSpacing: '0.5px', cursor: 'pointer', fontFamily: 'inherit',
+                            whiteSpace: 'nowrap', transition: 'all 0.15s'
                           }}
-                          onMouseEnter={e => {
-                            e.currentTarget.style.background = t.accent
-                            e.currentTarget.style.color = t.accentText
-                          }}
-                          onMouseLeave={e => {
-                            e.currentTarget.style.background = t.accentBg
-                            e.currentTarget.style.color = t.accent
-                          }}>
+                          onMouseEnter={e => { e.currentTarget.style.background = t.accent; e.currentTarget.style.color = t.accentText }}
+                          onMouseLeave={e => { e.currentTarget.style.background = t.accentBg; e.currentTarget.style.color = t.accent }}>
                           VIEW AS
                         </button>
                       </td>
@@ -451,8 +344,3 @@ availability.forEach(a => {
     </div>
   )
 }
-
-
-
-
-

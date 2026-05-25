@@ -1,13 +1,13 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from "react"
 import { supabase } from "../lib/supabase"
 
-type Role = "editor" | "reporter"
+type Role = "editor" | "reporter" | "admin"
 
 interface AuthContextType {
   user: any
   role: Role | null
   reporterId: string | null
-  userName: string | null  // ADDED
+  userName: string | null
   loading: boolean
   signOut: () => Promise<void>
 }
@@ -21,7 +21,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<any>(null)
   const [role, setRole] = useState<Role | null>(null)
   const [reporterId, setReporterId] = useState<string | null>(null)
-  const [userName, setUserName] = useState<string | null>(null) // ADDED
+  const [userName, setUserName] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
   async function fetchProfile(userId: string, userEmail?: string) {
@@ -35,14 +35,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setRole("reporter")
       }
 
-      // ADDED: fetch reporter name
-      const { data: reporter } = await supabase
-        .from("reporters").select("name").eq("id", userId).maybeSingle()
-      if (reporter?.name) {
-        setUserName(reporter.name)
+      // fetch name based on role
+      if (data?.role === 'admin') {
+        const { data: admin } = await supabase
+          .from("admins").select("name").eq("id", userId).maybeSingle()
+        setUserName(admin?.name || 'Admin')
       } else {
-        // fallback to email prefix
-        setUserName(userEmail?.split('@')[0] || 'User')
+        const { data: reporter } = await supabase
+          .from("reporters").select("name").eq("id", userId).maybeSingle()
+        setUserName(reporter?.name || userEmail?.split('@')[0] || 'User')
       }
     } catch {
       setRole("reporter")
@@ -61,18 +62,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null)
       if (session?.user) fetchProfile(session.user.id, session.user.email)
-      else {
-        setRole(null); setReporterId(null)
-        setUserName(null); setLoading(false)
-      }
+      else { setRole(null); setReporterId(null); setUserName(null); setLoading(false) }
     })
     return () => subscription.unsubscribe()
   }, [])
 
   const signOut = async () => {
     await supabase.auth.signOut()
-    setUser(null); setRole(null)
-    setReporterId(null); setUserName(null)
+    setUser(null); setRole(null); setReporterId(null); setUserName(null)
   }
 
   return (
