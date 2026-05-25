@@ -48,24 +48,37 @@ export default function ReporterRoster() {
   const weekDates = getCurrentWeekDates()
   const today = getTodayStr()
 
-  async function load() {
-    const [
-      { data: r },
-      { data: a },
-      { data: ass },
-      { data: l }
-    ] = await Promise.all([
-      supabase.from('reporters').select('*').eq('status', 'active').order('name'),
-      supabase.from('availability').select('*').eq('week_start_date', weekStart),
-      supabase.from('assignments').select('reporter_id').eq('is_active', true),
-      supabase.from('leave_requests').select('*').in('status', ['pending', 'acknowledged'])
-    ])
-    setReporters(r || [])
-    setAvailability(a || [])
-    setAssignments(ass || [])
-    setLeaves(l || [])
-    setLoading(false)
-  }
+async function load() {
+  const weekEnd = (() => {
+    const d = new Date(weekStart + 'T00:00:00')
+    d.setDate(d.getDate() + 6)
+    return d.toISOString().split('T')[0]
+  })()
+
+  const [
+    { data: r },
+    { data: a },
+    { data: ass },
+    { data: l }
+  ] = await Promise.all([
+    supabase.from('reporters').select('*').eq('status', 'active').order('name'),
+    supabase.from('availability').select('*').eq('week_start_date', weekStart),
+    // FIXED: only count current week active stories that are not filed/published
+    supabase.from('assignments')
+      .select('reporter_id, stories!inner(deadline, status)')
+      .eq('is_active', true)
+      .gte('stories.deadline', weekStart)
+      .lte('stories.deadline', weekEnd)
+      .not('stories.status', 'in', '("filed","published")'),
+    supabase.from('leave_requests').select('*').in('status', ['pending', 'acknowledged'])
+  ])
+
+  setReporters(r || [])
+  setAvailability(a || [])
+  setAssignments(ass || [])
+  setLeaves(l || [])
+  setLoading(false)
+}
 
   useEffect(() => { load() }, [])
 
@@ -428,3 +441,6 @@ export default function ReporterRoster() {
     </div>
   )
 }
+
+
+
