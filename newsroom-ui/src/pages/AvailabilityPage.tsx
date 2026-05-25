@@ -106,23 +106,25 @@ export default function AvailabilityPage() {
   useEffect(() => { load() }, [reporterId])
 
   function isDaySelectable(day: string): boolean {
-    const dateForDay = weekDates[day]
-    if (isPast(dateForDay)) return false
-    if (leaveDates.includes(dateForDay)) return false
-    const hasPendingLeave = leaves.some(
-      (l: any) => l.leave_date === dateForDay && l.status === 'pending'
-    )
-    if (hasPendingLeave) return false
-    return true
-  }
+  // FIXED: weekends never selectable
+  if (day === 'Sat' || day === 'Sun') return false
+  const dateForDay = weekDates[day]
+  if (isPast(dateForDay)) return false
+  if (leaveDates.includes(dateForDay)) return false
+  const hasPendingLeave = leaves.some(
+    (l: any) => l.leave_date === dateForDay && l.status === 'pending'
+  )
+  if (hasPendingLeave) return false
+  return true
+}
 
   function toggleDay(day: string) {
-    if (!isDaySelectable(day)) return
-    setSelectedDays(prev =>
-      prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day]
-    )
-    setSaved(false)
-  }
+  // FIXED: block weekends
+  if (day === 'Sat' || day === 'Sun') return
+  setSelectedDays(prev =>
+    prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day]
+  )
+}
 
   async function saveAvailability() {
     if (!reporterId) return
@@ -192,6 +194,7 @@ export default function AvailabilityPage() {
   }
 
   function getDayStatus(day: string) {
+    if (day === 'Sat' || day === 'Sun') return 'weekend'
     const dateForDay = weekDates[day]
     if (isPast(dateForDay)) return 'past'
     if (leaveDates.includes(dateForDay)) return 'leave_approved'
@@ -216,6 +219,8 @@ export default function AvailabilityPage() {
       cursor: 'pointer',
     }
     switch (status) {
+      case 'weekend':
+        return { ...base, borderColor: t.borderCard, background: t.bgPage, color: t.textDisabled, cursor: 'not-allowed', opacity: 0.4 }
       case 'past':
         return { ...base, borderColor: t.borderCard, background: t.bgPage, color: t.textDisabled, cursor: 'not-allowed' }
       case 'leave_approved':
@@ -241,6 +246,7 @@ export default function AvailabilityPage() {
 
   function getDayLabel(status: string): string {
     switch (status) {
+      case 'weekend': return 'OFF'
       case 'past': return 'PAST'
       case 'leave_approved': return 'LEAVE'
       case 'leave_pending': return 'PEND'
@@ -737,6 +743,9 @@ export default function AvailabilityPage() {
     </div>
   )
 }
+
+
+
 
 
 

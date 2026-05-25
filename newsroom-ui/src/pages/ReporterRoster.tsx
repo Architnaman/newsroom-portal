@@ -102,6 +102,8 @@ availability.forEach(a => {
 
   function getDayStatus(reporterId: string, day: string) {
     const dateForDay = weekDates[day]
+    // FIXED: weekends always unavailable
+    if (day === 'Sat' || day === 'Sun') return 'unavailable'
     const reporterLeaves = leaveMap[reporterId] || []
     const leaveOnDay = reporterLeaves.find(l => l.date === dateForDay)
     if (leaveOnDay?.status === 'acknowledged') return 'leave_approved'
@@ -447,6 +449,7 @@ availability.forEach(a => {
     </div>
   )
 }
+
 
 
 
