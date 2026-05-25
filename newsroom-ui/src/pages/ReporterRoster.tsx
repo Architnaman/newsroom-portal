@@ -83,7 +83,13 @@ async function load() {
   useEffect(() => { load() }, [])
 
   const availMap: Record<string, string[]> = {}
-  availability.forEach(a => { availMap[a.reporter_id] = a.available_days })
+// FIXED: if no availability row exists for this week, default to Mon-Fri available
+reporters.forEach(r => {
+  availMap[r.id] = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'] // default
+})
+availability.forEach(a => {
+  availMap[a.reporter_id] = a.available_days // override with actual if exists
+})
 
   const countMap: Record<string, number> = {}
   assignments.forEach(a => { countMap[a.reporter_id] = (countMap[a.reporter_id] || 0) + 1 })
