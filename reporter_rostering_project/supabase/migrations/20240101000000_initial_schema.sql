@@ -258,3 +258,17 @@ ALTER TABLE leave_requests ADD COLUMN IF NOT EXISTS filed_by_editor boolean DEFA
 ALTER TABLE leave_requests ADD COLUMN IF NOT EXISTS editor_note text;
 ALTER TABLE leave_requests ADD COLUMN IF NOT EXISTS acknowledged_at timestamptz;
 ALTER TABLE leave_requests ADD COLUMN IF NOT EXISTS reject_reason text;
+
+-- ================================================
+-- WEEKLY REPORTER LOAD RESET
+-- ================================================
+CREATE OR REPLACE FUNCTION reset_weekly_reporter_load()
+RETURNS void AS $$
+BEGIN
+  UPDATE reporters SET current_load = 0 WHERE status = 'active';
+  UPDATE assignments SET is_active = false
+  WHERE is_active = true AND story_id IN (
+    SELECT id FROM stories WHERE status IN ('filed', 'published')
+  );
+END;
+$$ LANGUAGE plpgsql;

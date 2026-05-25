@@ -46,6 +46,20 @@ export default function EditorDashboard() {
   }
 
   async function load() {
+    await checkAndResetWeeklyLoad()  // ADD THIS LINE
+  setLoading(true)
+  // ... rest of load function
+    async function checkAndResetWeeklyLoad() {
+  const lastReset = localStorage.getItem('nr_last_week_reset')
+  const currentWeekStart = getCurrentWeekStart()
+
+  // If we haven't reset this week yet, do it now
+  if (lastReset !== currentWeekStart) {
+    await supabase.rpc('reset_weekly_reporter_load')
+    localStorage.setItem('nr_last_week_reset', currentWeekStart)
+    console.log('Weekly load reset for week:', currentWeekStart)
+  }
+}
     setLoading(true)
     const weekStart = getCurrentWeekStart()
     const weekEnd = getCurrentWeekEnd()
