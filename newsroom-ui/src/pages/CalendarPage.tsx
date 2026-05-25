@@ -3,6 +3,8 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import Navbar from '../components/Navbar'
 import { useTheme } from '../context/ThemeContext'
+import { useCollapse } from '../hooks/useCollapse'
+import SectionCard from '../components/SectionCard'
 
 export default function CalendarPage() {
   const { role, reporterId } = useAuth()
@@ -859,6 +861,7 @@ export default function CalendarPage() {
     </div>
   )
 }
+
 
 
 

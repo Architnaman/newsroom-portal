@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import Navbar from '../components/Navbar'
 import { useTheme } from '../context/ThemeContext'
+import { useCollapse } from '../hooks/useCollapse'
+import SectionCard from '../components/SectionCard'
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
@@ -449,6 +451,7 @@ availability.forEach(a => {
     </div>
   )
 }
+
 
 
 
