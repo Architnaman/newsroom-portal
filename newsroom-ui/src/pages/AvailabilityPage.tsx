@@ -80,7 +80,7 @@ export default function AvailabilityPage() {
       .eq('week_start_date', weekStart).maybeSingle()
 
     if (data) { setExisting(data); setSelectedDays(data.available_days) }
-    else { setExisting(null); setSelectedDays([]) }
+    else { setExisting(null); setSelectedDays(['Mon', 'Tue', 'Wed', 'Thu', 'Fri']) }
 
     const { data: leavesData } = await supabase
       .from('leave_requests').select('*')
@@ -737,6 +737,7 @@ export default function AvailabilityPage() {
     </div>
   )
 }
+
 
 
 
