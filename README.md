@@ -15,10 +15,10 @@
 3. Install dependencies:
    npm install
 
-4. Create .env file in newsroom-ui folder with these exact values:
+4. Create .env file in newsroom-ui folder:
    VITE_SUPABASE_URL=https://vhremychmjzpunymvopt.supabase.co
-   VITE_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZocmVteWNobWp6cHVueW12b3B0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk3NjAzMTMsImV4cCI6MjA5NTMzNjMxM30.n3H2W8PqEayuCvLLB5lLr7xejilhKThb81u5kx-AugQ
-   VITE_GROQ_API_KEY=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
+   VITE_SUPABASE_ANON_KEY=get_from_project_owner
+   VITE_GROQ_API_KEY=get_from_project_owner
 
 5. Run:
    npm run dev
@@ -38,8 +38,8 @@
 
 2. Create .env file in newsroom-ui folder:
    VITE_SUPABASE_URL=http://127.0.0.1:54321
-   VITE_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRFA0NiK7URIqUfev2YJ8m3XOtqGMSj4txOwOqxbFec
-   VITE_GROQ_API_KEY=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
+   VITE_SUPABASE_ANON_KEY=get_from_local_supabase_dashboard
+   VITE_GROQ_API_KEY=get_from_project_owner
 
 3. Run:
    cd newsroom-ui
