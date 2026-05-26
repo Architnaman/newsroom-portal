@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useTheme, backgroundPresets } from '../context/ThemeContext'
+import { supabase } from '../lib/supabase'
 
 interface NavItem { label: string; path: string }
 
@@ -13,6 +14,8 @@ export default function Navbar() {
 
   const [showSettings, setShowSettings] = useState(false)
   const [showGuide, setShowGuide] = useState(false)
+  const [guideUrl, setGuideUrl] = useState<string | null>(null)
+  const [guideLoading, setGuideLoading] = useState(false)
   const [pendingBg, setPendingBg] = useState<string>(background)
   const [pendingTheme, setPendingTheme] = useState<string>(theme)
   const [pendingFontSize, setPendingFontSize] = useState<any>(fontSize)
@@ -22,7 +25,6 @@ export default function Navbar() {
   const fontLabels: Record<string, string> = { sm: 'A-', md: 'A', lg: 'A+', xl: 'A++' }
   const fontSizePx: Record<string, string> = { sm: '10px', md: '11px', lg: '13px', xl: '15px' }
 
-  // Sync pending when modal opens
   useEffect(() => {
     if (showSettings) {
       setPendingBg(background)
@@ -32,22 +34,14 @@ export default function Navbar() {
     }
   }, [showSettings])
 
-  // FIXED: apply background by updating CSS variable directly on documentElement
-  // CSS variable is referenced by App.tsx zoom wrapper via var(--bg-main)
   function applyBackgroundGlobally(bgKey: string, themeMode: string) {
     const preset = backgroundPresets[bgKey as keyof typeof backgroundPresets]
     const bgValue = preset?.value
     const defaultBg = themeMode === 'dark' ? '#0a0f1a' : '#eef4ff'
     const finalBg = bgValue || defaultBg
-
-    // FIXED: update CSS variable on root element
-    // App.tsx uses var(--bg-main) so this instantly updates the background
     document.documentElement.style.setProperty('--bg-main', finalBg)
-
-    console.log('Background applied:', bgKey, '->', finalBg)
   }
 
-  // Apply saved background on every mount/page load
   useEffect(() => {
     const savedBg = localStorage.getItem('nr_background') || 'default'
     const savedTheme = localStorage.getItem('nr_theme') || 'light'
@@ -55,28 +49,26 @@ export default function Navbar() {
   }, [])
 
   function handleSave() {
-    console.log('Saving settings:', { pendingBg, pendingTheme, pendingFontSize })
-
-    // 1. Apply and save background
     setBackground(pendingBg as any)
     localStorage.setItem('nr_background', pendingBg)
     applyBackgroundGlobally(pendingBg, pendingTheme)
-
-    // 2. Apply and save font size
     setFontSize(pendingFontSize)
     localStorage.setItem('nr_fontsize', pendingFontSize)
-
-    // 3. Apply theme if changed
     if (pendingTheme !== theme) {
       toggleTheme()
       localStorage.setItem('nr_theme', pendingTheme)
     }
-
     setSaved(true)
-    setTimeout(() => {
-      setSaved(false)
-      setShowSettings(false)
-    }, 1500)
+    setTimeout(() => { setSaved(false); setShowSettings(false) }, 1500)
+  }
+
+  async function openGuide() {
+    setGuideLoading(true)
+    const fileName = role === 'editor' ? 'editor_guide.pdf' : 'reporter_guide.pdf'
+    const { data } = supabase.storage.from('story-files').getPublicUrl(fileName)
+    setGuideUrl(data.publicUrl)
+    setGuideLoading(false)
+    setShowGuide(true)
   }
 
   const editorNav: NavItem[] = [
@@ -91,33 +83,9 @@ export default function Navbar() {
     { label: 'Calendar', path: '/calendar' },
   ]
   const adminNav: NavItem[] = [
-  { label: 'Settings', path: '/admin' },
-]
+    { label: 'Settings', path: '/admin' },
+  ]
   const nav = role === 'editor' ? editorNav : role === 'admin' ? adminNav : reporterNav
-
-  const editorGuide = [
-    { icon: '📝', title: 'Create a Story', desc: 'Go to Dashboard → click "+ NEW STORY". Fill in headline, deadline, category and urgency.' },
-    { icon: '👤', title: 'Assign to Reporter', desc: 'Click ASSIGN on any unassigned story. Run SCORE REPORTERS to get the best match, or use OVERRIDE ASSIGN for unavailable reporters.' },
-    { icon: '📋', title: 'Track Progress', desc: 'Use the Kanban board to see stories move from Assigned → In Progress → Filed → Published.' },
-    { icon: '✅', title: 'Review Filed Stories', desc: 'On Kanban, click VIEW AND REVIEW on filed stories. Approve, publish with feedback, or reassign.' },
-    { icon: '🗓️', title: 'Manage Leaves', desc: 'Approve or reject leave requests from Dashboard. View reporter availability on the Roster page.' },
-    { icon: '👁️', title: 'View as Reporter', desc: 'On Roster, click VIEW AS to see any reporter\'s full dashboard and file leave on their behalf.' },
-    { icon: '📅', title: 'Calendar View', desc: 'Select any reporter from the dropdown to see their story deadlines, leaves and availability.' },
-    { icon: '🤖', title: 'AI Assistant', desc: 'Click the AI button (bottom right) to create stories, assign reporters and approve leaves using natural language.' },
-  ]
-
-  const reporterGuide = [
-    { icon: '📰', title: 'View Your Stories', desc: 'Go to My Stories to see all your active assignments.' },
-    { icon: '▶️', title: 'Start Working', desc: 'Click START WORKING on an assigned story to mark it as In Progress.' },
-    { icon: '📤', title: 'File Your Report', desc: 'When done, click FILE REPORT to upload your Word document (.doc or .docx).' },
-    { icon: '⚡', title: 'Override Assignments', desc: 'If you receive an override assignment, you must ACCEPT or REJECT it with a valid reason.' },
-    { icon: '🗓️', title: 'Set Availability', desc: 'Go to Availability page to toggle which days you\'re available this week.' },
-    { icon: '🏖️', title: 'File Leave', desc: 'On Availability page, click + FILE LEAVE to request a day off.' },
-    { icon: '📅', title: 'Calendar', desc: 'Your calendar shows story deadlines, approved leaves and holidays.' },
-    { icon: '🤖', title: 'AI Assistant', desc: 'Click the AI button (bottom right) to perform actions using natural language.' },
-  ]
-
-  const guide = role === 'editor' ? editorGuide : reporterGuide
 
   return (
     <>
@@ -209,7 +177,7 @@ export default function Navbar() {
             {theme === 'dark' ? '☀' : '☾'}
           </button>
 
-          {/* Settings / background picker */}
+          {/* Appearance */}
           <button
             aria-label="Customize appearance"
             onClick={() => setShowSettings(true)}
@@ -224,19 +192,20 @@ export default function Navbar() {
             🎨
           </button>
 
-          {/* User guide */}
+          {/* User Guide — opens PDF */}
           <button
             aria-label="User guide"
-            onClick={() => setShowGuide(true)}
-            title="User guide"
+            onClick={openGuide}
+            title="User guide PDF"
             style={{
               padding: '7px 12px', borderRadius: '8px',
               border: `1px solid ${t.borderCard}`,
-              background: t.bgInput, color: t.textSecondary,
-              fontSize: '14px', cursor: 'pointer',
+              background: guideLoading ? t.accentBg : t.bgInput,
+              color: guideLoading ? t.accent : t.textSecondary,
+              fontSize: '14px', cursor: guideLoading ? 'not-allowed' : 'pointer',
               fontFamily: 'inherit', transition: 'all 0.15s',
             }}>
-            ❓
+            {guideLoading ? '⏳' : '❓'}
           </button>
 
           {/* User name + role badge */}
@@ -294,70 +263,27 @@ export default function Navbar() {
       {showSettings && (
         <div
           role="dialog" aria-modal="true" aria-label="Appearance settings"
-          style={{
-            position: 'fixed', inset: 0, background: t.overlayBg,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            zIndex: 9998, fontFamily: 'inherit'
-          }}
+          style={{ position: 'fixed', inset: 0, background: t.overlayBg, display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9998, fontFamily: 'inherit' }}
           onClick={e => { if (e.target === e.currentTarget) setShowSettings(false) }}>
-          <div style={{
-            background: t.bgCard, border: `1px solid ${t.borderCard}`,
-            borderRadius: '14px', width: '100%', maxWidth: '500px',
-            margin: '24px', padding: '28px', boxShadow: t.shadow
-          }}>
-
-            {/* Header */}
+          <div style={{ background: t.bgCard, border: `1px solid ${t.borderCard}`, borderRadius: '14px', width: '100%', maxWidth: '500px', margin: '24px', padding: '28px', boxShadow: t.shadow }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
               <div>
-                <h2 style={{ color: t.textPrimary, margin: '0 0 4px', fontSize: '18px', fontWeight: '700' }}>
-                  Appearance
-                </h2>
-                <p style={{ color: t.textMuted, margin: 0, fontSize: '13px' }}>
-                  Choose your preferences and click Save
-                </p>
+                <h2 style={{ color: t.textPrimary, margin: '0 0 4px', fontSize: '18px', fontWeight: '700' }}>Appearance</h2>
+                <p style={{ color: t.textMuted, margin: 0, fontSize: '13px' }}>Choose your preferences and click Save</p>
               </div>
-              <button onClick={() => setShowSettings(false)}
-                style={{ background: 'none', border: 'none', color: t.textMuted, fontSize: '22px', cursor: 'pointer' }}>
-                x
-              </button>
+              <button onClick={() => setShowSettings(false)} style={{ background: 'none', border: 'none', color: t.textMuted, fontSize: '22px', cursor: 'pointer' }}>x</button>
             </div>
 
             {/* Background picker */}
             <div style={{ marginBottom: '24px' }}>
-              <h3 style={{ color: t.textSecondary, fontSize: '12px', fontWeight: '700', letterSpacing: '0.5px', margin: '0 0 12px' }}>
-                BACKGROUND
-              </h3>
+              <h3 style={{ color: t.textSecondary, fontSize: '12px', fontWeight: '700', letterSpacing: '0.5px', margin: '0 0 12px' }}>BACKGROUND</h3>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px' }}>
                 {(Object.entries(backgroundPresets) as any[]).map(([key, preset]) => (
-                  <button
-                    key={key}
-                    onClick={() => setPendingBg(key)}
-                    title={preset.label}
-                    style={{
-                      padding: '0', borderRadius: '10px', border: 'none',
-                      cursor: 'pointer', fontFamily: 'inherit',
-                      outline: pendingBg === key ? `3px solid ${t.accent}` : `2px solid ${t.borderCard}`,
-                      outlineOffset: '2px', overflow: 'hidden', transition: 'all 0.15s'
-                    }}>
-                    {/* Preview swatch */}
-                    <div style={{
-                      height: '52px',
-                      background: preset.value || preset.preview,
-                      borderRadius: '8px 8px 0 0',
-                    }} />
-                    <div style={{
-                      padding: '6px 8px', background: t.bgPage,
-                      borderRadius: '0 0 8px 8px',
-                      border: `1px solid ${pendingBg === key ? t.accentBorder : t.borderCard}`,
-                      borderTop: 'none'
-                    }}>
-                      <div style={{
-                        color: pendingBg === key ? t.accent : t.textMuted,
-                        fontSize: '10px', fontWeight: pendingBg === key ? '700' : '500',
-                        textAlign: 'center' as const
-                      }}>
-                        {preset.label}
-                      </div>
+                  <button key={key} onClick={() => setPendingBg(key)} title={preset.label}
+                    style={{ padding: '0', borderRadius: '10px', border: 'none', cursor: 'pointer', fontFamily: 'inherit', outline: pendingBg === key ? `3px solid ${t.accent}` : `2px solid ${t.borderCard}`, outlineOffset: '2px', overflow: 'hidden', transition: 'all 0.15s' }}>
+                    <div style={{ height: '52px', background: preset.value || preset.preview, borderRadius: '8px 8px 0 0' }} />
+                    <div style={{ padding: '6px 8px', background: t.bgPage, borderRadius: '0 0 8px 8px', border: `1px solid ${pendingBg === key ? t.accentBorder : t.borderCard}`, borderTop: 'none' }}>
+                      <div style={{ color: pendingBg === key ? t.accent : t.textMuted, fontSize: '10px', fontWeight: pendingBg === key ? '700' : '500', textAlign: 'center' as const }}>{preset.label}</div>
                     </div>
                   </button>
                 ))}
@@ -366,21 +292,11 @@ export default function Navbar() {
 
             {/* Mode toggle */}
             <div style={{ marginBottom: '24px' }}>
-              <h3 style={{ color: t.textSecondary, fontSize: '12px', fontWeight: '700', letterSpacing: '0.5px', margin: '0 0 12px' }}>
-                MODE
-              </h3>
+              <h3 style={{ color: t.textSecondary, fontSize: '12px', fontWeight: '700', letterSpacing: '0.5px', margin: '0 0 12px' }}>MODE</h3>
               <div style={{ display: 'flex', gap: '8px' }}>
                 {(['light', 'dark'] as const).map(m => (
                   <button key={m} onClick={() => setPendingTheme(m)}
-                    style={{
-                      flex: 1, padding: '12px', borderRadius: '8px',
-                      border: `2px solid ${pendingTheme === m ? t.accentBorder : t.borderCard}`,
-                      background: pendingTheme === m ? t.accentBg : 'transparent',
-                      color: pendingTheme === m ? t.accent : t.textMuted,
-                      fontSize: '13px', fontWeight: pendingTheme === m ? '700' : '400',
-                      cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.15s',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px'
-                    }}>
+                    style={{ flex: 1, padding: '12px', borderRadius: '8px', border: `2px solid ${pendingTheme === m ? t.accentBorder : t.borderCard}`, background: pendingTheme === m ? t.accentBg : 'transparent', color: pendingTheme === m ? t.accent : t.textMuted, fontSize: '13px', fontWeight: pendingTheme === m ? '700' : '400', cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.15s', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
                     {m === 'dark' ? '🌙 Dark' : '☀️ Light'}
                   </button>
                 ))}
@@ -389,69 +305,45 @@ export default function Navbar() {
 
             {/* Font size */}
             <div style={{ marginBottom: '28px' }}>
-              <h3 style={{ color: t.textSecondary, fontSize: '12px', fontWeight: '700', letterSpacing: '0.5px', margin: '0 0 12px' }}>
-                FONT SIZE
-              </h3>
+              <h3 style={{ color: t.textSecondary, fontSize: '12px', fontWeight: '700', letterSpacing: '0.5px', margin: '0 0 12px' }}>FONT SIZE</h3>
               <div style={{ display: 'flex', gap: '8px' }}>
                 {(['sm', 'md', 'lg', 'xl'] as const).map(s => (
                   <button key={s} onClick={() => setPendingFontSize(s)}
-                    style={{
-                      flex: 1, padding: '10px', borderRadius: '8px',
-                      border: `2px solid ${pendingFontSize === s ? t.accentBorder : t.borderCard}`,
-                      background: pendingFontSize === s ? t.accentBg : 'transparent',
-                      color: pendingFontSize === s ? t.accent : t.textMuted,
-                      fontSize: s === 'sm' ? '11px' : s === 'md' ? '13px' : s === 'lg' ? '15px' : '17px',
-                      fontWeight: pendingFontSize === s ? '700' : '400',
-                      cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.15s'
-                    }}>
+                    style={{ flex: 1, padding: '10px', borderRadius: '8px', border: `2px solid ${pendingFontSize === s ? t.accentBorder : t.borderCard}`, background: pendingFontSize === s ? t.accentBg : 'transparent', color: pendingFontSize === s ? t.accent : t.textMuted, fontSize: s === 'sm' ? '11px' : s === 'md' ? '13px' : s === 'lg' ? '15px' : '17px', fontWeight: pendingFontSize === s ? '700' : '400', cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.15s' }}>
                     {fontLabels[s]}
                   </button>
                 ))}
               </div>
             </div>
 
-            {/* SAVE BUTTON */}
-            <button
-              onClick={handleSave}
-              style={{
-                width: '100%', padding: '14px',
-                background: saved ? t.success : t.accent,
-                border: 'none', borderRadius: '8px',
-                color: saved ? '#fff' : t.accentText,
-                fontSize: '14px', fontWeight: '700',
-                cursor: 'pointer', fontFamily: 'inherit',
-                transition: 'all 0.2s', letterSpacing: '0.5px'
-              }}>
+            <button onClick={handleSave}
+              style={{ width: '100%', padding: '14px', background: saved ? t.success : t.accent, border: 'none', borderRadius: '8px', color: saved ? '#fff' : t.accentText, fontSize: '14px', fontWeight: '700', cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.2s', letterSpacing: '0.5px' }}>
               {saved ? '✓ SAVED!' : 'SAVE CHANGES'}
             </button>
           </div>
         </div>
       )}
 
-      {/* User Guide Modal */}
-      {showGuide && (
+      {/* PDF Guide Modal */}
+      {showGuide && guideUrl && (
         <div
-          role="dialog" aria-modal="true" aria-label="User guide"
-          style={{
-            position: 'fixed', inset: 0, background: t.overlayBg,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            zIndex: 9998, fontFamily: 'inherit'
-          }}
+          role="dialog" aria-modal="true" aria-label="User guide PDF"
+          style={{ position: 'fixed', inset: 0, background: t.overlayBg, display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9998, fontFamily: 'inherit' }}
           onClick={e => { if (e.target === e.currentTarget) setShowGuide(false) }}>
-          <div style={{
-            background: t.bgCard, border: `1px solid ${t.borderCard}`,
-            borderRadius: '14px', width: '100%', maxWidth: '560px',
-            margin: '24px', padding: '28px', boxShadow: t.shadow,
-            maxHeight: '88vh', overflowY: 'auto'
-          }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-              <div>
-                <h2 style={{ color: t.textPrimary, margin: '0 0 4px', fontSize: '20px', fontWeight: '700' }}>
-                  {role === 'editor' ? 'Editor Guide' : 'Reporter Guide'}
-                </h2>
-                <p style={{ color: t.textMuted, margin: 0, fontSize: '13px' }}>
-                  Welcome, <span style={{ color: t.accent, fontWeight: '600' }}>{userName}</span>! Here's how to use your portal.
-                </p>
+          <div style={{ background: t.bgCard, border: `1px solid ${t.borderCard}`, borderRadius: '14px', width: '100%', maxWidth: '800px', height: '88vh', margin: '24px', padding: '20px', boxShadow: t.shadow, display: 'flex', flexDirection: 'column' }}>
+
+            {/* Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexShrink: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <div style={{ padding: '6px 14px', borderRadius: '6px', background: role === 'editor' ? t.accentBg : t.successBg, border: `1px solid ${role === 'editor' ? t.accentBorder : t.successBorder}` }}>
+                  <span style={{ color: role === 'editor' ? t.accent : t.success, fontSize: '12px', fontWeight: '700' }}>
+                    {role === 'editor' ? '✏️ EDITOR GUIDE' : '📰 REPORTER GUIDE'}
+                  </span>
+                </div>
+                <a href={guideUrl} target="_blank" rel="noopener noreferrer"
+                  style={{ padding: '6px 14px', borderRadius: '6px', background: t.accentBg, border: `1px solid ${t.accentBorder}`, color: t.accent, fontSize: '12px', fontWeight: '700', textDecoration: 'none' }}>
+                  ⬇ DOWNLOAD PDF
+                </a>
               </div>
               <button onClick={() => setShowGuide(false)}
                 style={{ background: 'none', border: 'none', color: t.textMuted, fontSize: '22px', cursor: 'pointer' }}>
@@ -459,92 +351,12 @@ export default function Navbar() {
               </button>
             </div>
 
-            <div style={{
-              display: 'inline-flex', alignItems: 'center', gap: '8px',
-              padding: '6px 14px', borderRadius: '6px', marginBottom: '24px',
-              background: role === 'editor' ? t.accentBg : t.successBg,
-              border: `1px solid ${role === 'editor' ? t.accentBorder : t.successBorder}`
-            }}>
-              <span style={{ fontSize: '16px' }}>{role === 'editor' ? '✏️' : '📰'}</span>
-              <span style={{ color: role === 'editor' ? t.accent : t.success, fontSize: '13px', fontWeight: '700' }}>
-                {role === 'editor' ? 'EDITOR' : 'REPORTER'} PORTAL
-              </span>
-            </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '24px' }}>
-              {guide.map((step, i) => (
-                <div key={i} style={{
-                  display: 'flex', gap: '14px', alignItems: 'flex-start',
-                  padding: '14px 16px', borderRadius: '10px',
-                  background: t.bgPage, border: `1px solid ${t.borderCard}`
-                }}>
-                  <div style={{
-                    width: '36px', height: '36px', borderRadius: '8px',
-                    background: t.accentBg, border: `1px solid ${t.accentBorder}`,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: '18px', flexShrink: 0
-                  }}>
-                    {step.icon}
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                      <span style={{
-                        width: '20px', height: '20px', borderRadius: '50%',
-                        background: t.accent, color: t.accentText,
-                        fontSize: '10px', fontWeight: '700',
-                        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                        flexShrink: 0
-                      }}>
-                        {i + 1}
-                      </span>
-                      <span style={{ color: t.textPrimary, fontSize: '14px', fontWeight: '700' }}>
-                        {step.title}
-                      </span>
-                    </div>
-                    <p style={{ color: t.textMuted, fontSize: '13px', margin: 0, lineHeight: 1.6 }}>
-                      {step.desc}
-                    </p>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <div style={{
-              padding: '16px', background: t.accentBg,
-              border: `1px solid ${t.accentBorder}`,
-              borderRadius: '10px', marginBottom: '16px'
-            }}>
-              <p style={{ color: t.accent, fontSize: '12px', fontWeight: '700', margin: '0 0 8px', letterSpacing: '0.5px' }}>
-                QUICK TIPS
-              </p>
-              {role === 'editor' ? (
-                <ul style={{ color: t.textSecondary, fontSize: '12px', margin: 0, paddingLeft: '16px', lineHeight: 2 }}>
-                  <li>Use the <strong>AI chatbot</strong> (bottom right) to perform actions with natural language</li>
-                  <li>The <strong>Kanban board</strong> gives a visual overview of all stories</li>
-                  <li>Click <strong>VIEW AS</strong> on the Roster to see any reporter's full dashboard</li>
-                  <li>Stories with <strong>red urgency</strong> are breaking news — assign immediately</li>
-                </ul>
-              ) : (
-                <ul style={{ color: t.textSecondary, fontSize: '12px', margin: 0, paddingLeft: '16px', lineHeight: 2 }}>
-                  <li>Always <strong>save availability</strong> at the start of each week</li>
-                  <li>File your report as a <strong>Word document</strong> (.doc or .docx)</li>
-                  <li>Check your <strong>calendar</strong> daily for upcoming deadlines</li>
-                  <li>Respond to <strong>override assignments</strong> as soon as possible</li>
-                </ul>
-              )}
-            </div>
-
-            <button
-              onClick={() => setShowGuide(false)}
-              style={{
-                width: '100%', padding: '13px',
-                background: t.accent, border: 'none',
-                borderRadius: '8px', color: t.accentText,
-                fontSize: '13px', fontWeight: '700',
-                cursor: 'pointer', fontFamily: 'inherit'
-              }}>
-              GOT IT — LET'S GO!
-            </button>
+            {/* PDF Viewer */}
+            <iframe
+              src={guideUrl}
+              style={{ flex: 1, border: 'none', borderRadius: '8px', width: '100%' }}
+              title={role === 'editor' ? 'Editor Guide' : 'Reporter Guide'}
+            />
           </div>
         </div>
       )}
