@@ -1,131 +1,71 @@
-# Newsroom OS - Reporter Assignment Portal
+# Newsroom Portal
 
-A full-stack newsroom management portal built with React + Supabase.
+## Wipro Laptop Setup (Cloud Supabase - No Installation Needed)
 
-## Tech Stack
-- Frontend: React + TypeScript + Vite
-- Backend: Supabase (local)
-- Edge Functions: Deno
-- Auth: Supabase Auth
+### Prerequisites
+- Node.js and npm (must be allowed on Wipro laptop)
 
-## Prerequisites
-- Node.js 18+
-- Supabase CLI (https://supabase.com/docs/guides/cli)
-- Git
-- Docker Desktop (required for local Supabase)
+### Steps
+1. Clone repo:
+   git clone https://github.com/Architnaman/newsroom-portal.git
 
-## Setup Instructions
+2. Go to project:
+   cd newsroom-portal/newsroom-ui
 
-### 1. Clone the repository
-git clone https://github.com/Architnaman/newsroom-portal.git
-cd newsroom-portal
+3. Install dependencies:
+   npm install
 
-### 2. Install Supabase CLI
-npm install -g supabase
+4. Create .env file in newsroom-ui folder with these exact values:
+   VITE_SUPABASE_URL=https://vhremychmjzpunymvopt.supabase.co
+   VITE_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZocmVteWNobWp6cHVueW12b3B0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk3NjAzMTMsImV4cCI6MjA5NTMzNjMxM30.n3H2W8PqEayuCvLLB5lLr7xejilhKThb81u5kx-AugQ
+   VITE_GROQ_API_KEY=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
 
-### 3. Start local Supabase
-cd reporter_rostering_project
-supabase start
+5. Run:
+   npm run dev
 
-When Supabase starts it will show credentials like this:
+6. Open browser: http://localhost:5173
 
-Development Tools:
-  Studio  : http://127.0.0.1:54323
-  Mailpit : http://127.0.0.1:54324
+## Personal Laptop Setup (Local Supabase)
 
-APIs:
-  Project URL    : http://127.0.0.1:54321
-  REST           : http://127.0.0.1:54321/rest/v1
-  Edge Functions : http://127.0.0.1:54321/functions/v1
+### Prerequisites
+- Node.js, npm, Supabase CLI, Docker Desktop
 
-Database:
-  URL : postgresql://postgres:postgres@127.0.0.1:54322/postgres
+### Steps
+1. Start Supabase:
+   cd reporter_rostering_project
+   supabase start
+   supabase functions serve --env-file supabase/functions/.env
 
-NOTE: Copy the Publishable and Secret keys shown after supabase start.
-Use them in Step 5 and Step 7 below.
+2. Create .env file in newsroom-ui folder:
+   VITE_SUPABASE_URL=http://127.0.0.1:54321
+   VITE_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRFA0NiK7URIqUfev2YJ8m3XOtqGMSj4txOwOqxbFec
+   VITE_GROQ_API_KEY=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
 
-### 4. Run database migrations and seed data
-supabase db reset
+3. Run:
+   cd newsroom-ui
+   npm run dev
 
-This will automatically create all tables and insert default reporters and users.
+4. Open browser: http://localhost:5173
 
-### 5. Setup Edge Functions environment
-Create this file: reporter_rostering_project/supabase/functions/.env
-
-Paste this content (replace with your keys from supabase start):
-SUPABASE_URL=http://127.0.0.1:54321
-SUPABASE_SERVICE_ROLE_KEY=your-secret-key-here
-
-### 6. Start Edge Functions
-cd reporter_rostering_project
-supabase functions serve --env-file supabase/functions/.env
-
-### 7. Setup React app environment
-Create this file: newsroom-ui/.env
-
-Paste this content (replace with your keys from supabase start):
-VITE_SUPABASE_URL=http://127.0.0.1:54321
-VITE_SUPABASE_ANON_KEY=your-publishable-key-here
-
-### 8. Install React dependencies and start
-cd newsroom-ui
-npm install
-npm run dev
-
-Open http://localhost:5173
-
-## Default Login Credentials
-Role       | Email                  | Password
------------|------------------------|----------
-Editor     | editor@newsroom.com    | editor123
-Reporter 1 | priya@newsroom.com     | editor123
-Reporter 2 | arjun@newsroom.com     | editor123
-Reporter 3 | fatima@newsroom.com    | editor123
-Reporter 4 | ravi@newsroom.com      | editor123
-Reporter 5 | sunita@newsroom.com    | editor123
-
-## Reporter Beats
-Reporter     | Beats                  | Complexity Level
--------------|------------------------|------------------
-Priya Mehta  | Politics, Economy      | Auto-calculated
-Arjun Sharma | Tech, Science          | Auto-calculated
-Fatima Nair  | Crime, Local           | Auto-calculated
-Ravi Iyer    | Sports, Entertainment  | Auto-calculated
-Sunita Rao   | Business, Economy      | Auto-calculated
+## Login Credentials
+| Role     | Email                  | Password  |
+|----------|------------------------|-----------|
+| Admin    | admin@newsroom.com     | admin123  |
+| Editor   | editor@newsroom.com    | editor123 |
+| Reporter | priya@newsroom.com     | editor123 |
+| Reporter | arjun@newsroom.com     | editor123 |
+| Reporter | fatima@newsroom.com    | editor123 |
+| Reporter | ravi@newsroom.com      | editor123 |
+| Reporter | sunita@newsroom.com    | editor123 |
 
 ## Features
-- Editor Dashboard with this-week story management
-- Kanban board with 5 columns
-- AI-powered reporter scoring engine
-- Leave management with Approve and Reject
-- Weekly availability tracking
-- Reporter roster with availability grid
-- Word document filing system
-- Editor feedback on publish
-- Reassign story with reason
-- Auto complexity level calculation
-
-## Running Both Servers
-
-Terminal 1 - Supabase Functions:
-  cd reporter_rostering_project
-  supabase functions serve --env-file supabase/functions/.env
-
-Terminal 2 - React App:
-  cd newsroom-ui
-  npm run dev
-
-## Folder Structure
-newsroom-portal/
-├── reporter_rostering_project/    (Supabase backend)
-│   ├── supabase/
-│   │   ├── migrations/            (Database schema)
-│   │   ├── functions/             (Edge functions)
-│   │   │   └── score-reporters/   (Scoring engine)
-│   │   └── seed.sql               (Default data)
-└── newsroom-ui/                   (React frontend)
-    └── src/
-        ├── pages/
-        ├── components/
-        ├── context/
-        └── lib/
+- Editor Dashboard with story management
+- Kanban Board with drag and drop
+- Reporter Roster with availability tracking
+- Calendar with story deadlines
+- Reporter Queue and availability management
+- Leave request system with override workflow
+- Holiday blocking on public holidays
+- Admin portal with date format and week start settings
+- AI Chatbot powered by Groq
+- Dark/Light theme with font size controls
