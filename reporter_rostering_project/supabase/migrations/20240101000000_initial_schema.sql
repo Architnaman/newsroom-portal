@@ -318,12 +318,12 @@ ALTER TABLE profiles ADD CONSTRAINT profiles_role_check
 -- current_load column does not exist - use assignments
 -- ================================================
 CREATE OR REPLACE FUNCTION reset_weekly_reporter_load()
-RETURNS void AS \$\$
+RETURNS void AS $$
 BEGIN
   UPDATE assignments SET is_active = false
   WHERE is_active = true AND story_id IN (
     SELECT id FROM stories WHERE status IN ('filed', 'published')
   );
 END;
-\$\$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql;
 
