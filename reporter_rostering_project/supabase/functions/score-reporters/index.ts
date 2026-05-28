@@ -83,6 +83,11 @@ serve(async (req) => {
     })
 
     const availMap = {}
+    // Default all reporters to Mon-Fri
+    reporters?.forEach(r => {
+      availMap[r.id] = ["Mon", "Tue", "Wed", "Thu", "Fri"]
+    })
+    // Override with actual availability if exists
     availability?.forEach(a => {
       availMap[a.reporter_id] = a.available_days
     })
@@ -90,7 +95,7 @@ serve(async (req) => {
     const scored = reporters
       ?.filter(r => {
         if ((assignmentCounts[r.id] || 0) >= r.max_stories_per_week) return false
-        if (!availMap[r.id] || availMap[r.id].length === 0) return false
+        // availability defaults to Mon-Fri so this check is not needed
         const hasAtLeastOneAvailableDay = datesToCheck.some(date => {
           const dayName = getDayName(date)
           if (leaveMap[r.id]?.has(date)) return false
