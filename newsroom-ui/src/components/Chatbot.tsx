@@ -34,7 +34,7 @@ export default function Chatbot() {
     const upcomingHolidays = (holidays || []).filter((h: any) => h.date.split("T")[0] >= today)
 
     if (role === "editor") {
-      const { data: stories } = await supabase.from("stories").select("id, headline, status, category, urgency, deadline, complexity, priority").order("created_at", { ascending: false }).limit(10)
+      const { data: stories } = await supabase.from("stories").select("id, headline, status, category, urgency, deadline, complexity, priority").order("created_at", { ascending: false }).limit(5)
       const { data: reporters } = await supabase.from("reporters").select("id, name, email, beats, status, max_stories_per_week, complexity_level").eq("status", "active")
       const { data: leaves } = await supabase.from("leave_requests").select("id, reporter_id, leave_date, leave_type, status, notes").in("status", ["pending", "acknowledged"])
       const { data: assignments } = await supabase.from("assignments").select("story_id, reporter_id").eq("is_active", true)
