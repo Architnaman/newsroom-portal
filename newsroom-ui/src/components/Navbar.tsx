@@ -72,11 +72,12 @@ export default function Navbar() {
   }
 
   const editorNav: NavItem[] = [
-    { label: 'Dashboard', path: '/dashboard' },
-    { label: 'Kanban', path: '/kanban' },
-    { label: 'Roster', path: '/roster' },
-    { label: 'Calendar', path: '/calendar' },
-  ]
+  { label: 'Dashboard', path: '/dashboard' },
+  { label: 'Kanban', path: '/kanban' },
+  { label: 'Roster', path: '/roster' },
+  { label: 'Calendar', path: '/calendar' },
+  { label: 'Ambient Scribe', path: '/ai-report' },  // ADD THIS
+]
   const reporterNav: NavItem[] = [
     { label: 'My Stories', path: '/queue' },
     { label: 'Availability', path: '/availability' },

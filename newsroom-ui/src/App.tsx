@@ -11,6 +11,7 @@ import ReporterRoster from './pages/ReporterRoster'
 import CalendarPage from './pages/CalendarPage'
 import ReporterView from './pages/ReporterView'
 import AdminPortal from './pages/AdminPortal'
+import AIReportGenerator from './pages/AIReportGenerator'
 import Chatbot from './components/Chatbot'
 
 function ProtectedRoute({ children, requiredRole }: {
@@ -18,7 +19,7 @@ function ProtectedRoute({ children, requiredRole }: {
   requiredRole?: string | string[]
 }) {
   const { user, role, loading } = useAuth()
-  const { t, bgMain } = useTheme()
+  const { t } = useTheme()
 
   if (loading) return (
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-main, #eef4ff)' }}>
@@ -59,12 +60,14 @@ function AppRoutes() {
         <Route path="/login" element={
           user ? <Navigate to={getHome()} replace /> : <Login />
         } />
+
         {/* ADMIN */}
         <Route path="/admin" element={
           <ProtectedRoute requiredRole="admin">
             <AdminPortal />
           </ProtectedRoute>
         } />
+
         {/* EDITOR */}
         <Route path="/dashboard" element={
           <ProtectedRoute requiredRole="editor">
@@ -86,6 +89,12 @@ function AppRoutes() {
             <ReporterView />
           </ProtectedRoute>
         } />
+        <Route path="/ai-report" element={
+          <ProtectedRoute requiredRole="editor">
+            <AIReportGenerator />
+          </ProtectedRoute>
+        } />
+
         {/* REPORTER */}
         <Route path="/queue" element={
           <ProtectedRoute requiredRole="reporter">
@@ -97,12 +106,14 @@ function AppRoutes() {
             <AvailabilityPage />
           </ProtectedRoute>
         } />
+
         {/* SHARED */}
         <Route path="/calendar" element={
           <ProtectedRoute>
             <CalendarPage />
           </ProtectedRoute>
         } />
+
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
       {user && role !== 'admin' && <Chatbot />}
