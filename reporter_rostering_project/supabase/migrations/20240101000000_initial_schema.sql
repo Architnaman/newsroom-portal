@@ -327,3 +327,34 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+
+-- -- AI REPORTS TABLE (Ambient Scribe) -------------------------
+CREATE TABLE IF NOT EXISTS ai_reports (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  story_ids uuid[] DEFAULT '{}',
+  transcript text NOT NULL,
+  story_notes text,
+  assignment_notes text,
+  rostering_notes text,
+  confidence_score numeric(5,2) DEFAULT 0,
+  confidence_details jsonb,
+  confidence_breakdown jsonb,
+  reporter_validation jsonb DEFAULT '[]',
+  suggested_reporters jsonb DEFAULT '[]',
+  finalised_assignments jsonb DEFAULT '[]',
+  mentioned_reporters jsonb DEFAULT '[]',
+  status text DEFAULT 'draft' CHECK (status IN ('draft', 'approved')),
+  editor_modifications text,
+  approved_at timestamptz,
+  approved_by uuid,
+  created_at timestamptz DEFAULT now(),
+  updated_at timestamptz DEFAULT now()
+);
+
+ALTER TABLE ai_reports DISABLE ROW LEVEL SECURITY;
+GRANT ALL ON ai_reports TO anon;
+GRANT ALL ON ai_reports TO authenticated;
+
+CREATE INDEX IF NOT EXISTS idx_ai_reports_story_ids ON ai_reports USING GIN(story_ids);
+CREATE INDEX IF NOT EXISTS idx_ai_reports_status ON ai_reports(status);
+CREATE INDEX IF NOT EXISTS idx_ai_reports_created_at ON ai_reports(created_at DESC);
