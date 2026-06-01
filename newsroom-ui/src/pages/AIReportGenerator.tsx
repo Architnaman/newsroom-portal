@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { useTheme } from '../context/ThemeContext'
 import { useDateFormat } from '../context/DateFormatContext'
@@ -19,6 +19,8 @@ interface StoryReporterAssignment {
   overrideReason?: string
   status: 'pending' | 'accepted' | 'override_pending'
 }
+
+type TranscriptMode = 'both' | 'voice' | 'manual'
 
 export default function AIReportGenerator() {
   const { t } = useTheme()
@@ -59,6 +61,20 @@ export default function AIReportGenerator() {
   const [postOverrideLoading, setPostOverrideLoading] = useState(false)
   const [viewReportModal, setViewReportModal] = useState<any>(null)
 
+  // ── VOICE RECORDING STATES ───────────────────────────────────
+  const [transcriptMode, setTranscriptMode] = useState<TranscriptMode>('manual')
+  const [selectedAttendees, setSelectedAttendees] = useState<string[]>([])
+  const [isRecording, setIsRecording] = useState(false)
+  const [recordingTime, setRecordingTime] = useState(0)
+  const [voiceTranscript, setVoiceTranscript] = useState('')
+  const [manualTranscript, setManualTranscript] = useState('')
+  const [transcribing, setTranscribing] = useState(false)
+  const [recordingDone, setRecordingDone] = useState(false)
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const audioChunksRef = useRef<Blob[]>([])
+  const timerRef = useRef<any>(null)
+  const audioRef = useRef<Blob | null>(null)
+
   useEffect(() => { loadData() }, [])
 
   async function loadData() {
@@ -82,6 +98,104 @@ export default function AIReportGenerator() {
 
   function toggleStory(storyId: string) {
     setSelectedStories(prev => prev.includes(storyId) ? prev.filter(id => id !== storyId) : [...prev, storyId])
+  }
+
+  function toggleAttendee(reporterId: string) {
+    setSelectedAttendees(prev => prev.includes(reporterId) ? prev.filter(id => id !== reporterId) : [...prev, reporterId])
+  }
+
+  async function startRecording() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' })
+      mediaRecorderRef.current = mediaRecorder
+      audioChunksRef.current = []
+      mediaRecorder.ondataavailable = e => { if (e.data.size > 0) audioChunksRef.current.push(e.data) }
+      mediaRecorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' })
+        audioRef.current = audioBlob
+        stream.getTracks().forEach(track => track.stop())
+        setRecordingDone(true)
+        if (transcriptMode === 'voice' || transcriptMode === 'both') await transcribeAudio(audioBlob)
+      }
+      mediaRecorder.start(1000)
+      setIsRecording(true)
+      setRecordingTime(0)
+      setRecordingDone(false)
+      setVoiceTranscript('')
+      timerRef.current = setInterval(() => setRecordingTime(prev => prev + 1), 1000)
+    } catch (err: any) {
+      alert('Microphone access denied. Please allow microphone access and try again.')
+    }
+  }
+
+  function stopRecording() {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop()
+      setIsRecording(false)
+      clearInterval(timerRef.current)
+    }
+  }
+
+  async function transcribeAudio(audioBlob: Blob) {
+    setTranscribing(true)
+    try {
+      const attendeeNames = selectedAttendees.map(id => reporters.find(r => r.id === id)?.name).filter(Boolean).join(', ')
+      const storyHeadlines = selectedStories.map(id => stories.find(s => s.id === id)?.headline).filter(Boolean).join(', ')
+      const formData = new FormData()
+      formData.append('file', audioBlob, 'recording.webm')
+      formData.append('model', 'whisper-large-v3')
+      formData.append('response_format', 'text')
+      formData.append('temperature', '0.2')
+      formData.append('prompt', `This is a newsroom editorial meeting with multiple speakers from different regions. Attendees: ${attendeeNames}. Stories being discussed for assignment: ${storyHeadlines}. The conversation is about assigning reporters to news stories. Please transcribe accurately regardless of accent.`)
+      formData.append('language', 'en')
+      const response = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + GROQ_API_KEY },
+        body: formData
+      })
+      if (!response.ok) {
+        const err = await response.json()
+        throw new Error(err.error?.message || 'Transcription failed')
+      }
+      const text = await response.text()
+      setVoiceTranscript(text)
+      if (transcriptMode === 'voice') setTranscript(text)
+    } catch (err: any) {
+      alert('Transcription error: ' + err.message)
+    }
+    setTranscribing(false)
+  }
+
+  async function mergeTranscripts() {
+    if (!voiceTranscript || !manualTranscript) return
+    setTranscribing(true)
+    try {
+      const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + GROQ_API_KEY },
+        body: JSON.stringify({
+          model: 'llama-3.3-70b-versatile',
+          messages: [
+            { role: 'system', content: `You are merging two transcripts of the same newsroom meeting. MANUAL transcript is the primary source. VOICE transcript fills gaps. Rules: Keep ALL content from manual, add missing context from voice, remove duplicates, return only clean merged transcript text.` },
+            { role: 'user', content: `MANUAL TRANSCRIPT:\n${manualTranscript}\n\nVOICE TRANSCRIPT:\n${voiceTranscript}\n\nMerge these into one complete transcript.` }
+          ],
+          temperature: 0.1, max_tokens: 2000
+        })
+      })
+      const data = await response.json()
+      const merged = data.choices?.[0]?.message?.content || manualTranscript
+      setTranscript(merged)
+    } catch {
+      setTranscript(manualTranscript + '\n\n' + voiceTranscript)
+    }
+    setTranscribing(false)
+  }
+
+  function formatTime(seconds: number): string {
+    const m = Math.floor(seconds / 60).toString().padStart(2, '0')
+    const s = (seconds % 60).toString().padStart(2, '0')
+    return `${m}:${s}`
   }
 
   function scoreReporter(reporter: any, storyCategories: string[]): { score: number, issues: string[] } {
@@ -112,14 +226,16 @@ export default function AIReportGenerator() {
       .slice(0, 3)
   }
 
-  // ── KEY FIX: Extract reporter per story with better prompt ──
   async function extractReporterPerStory(storyHeadlines: string[]): Promise<Record<string, string>> {
     const knownReporterNames = reporters.map(r => r.name).join(', ')
+    const attendeeNames = selectedAttendees.map(id => reporters.find(r => r.id === id)?.name).filter(Boolean).join(', ')
+    const activeTranscript = transcriptMode === 'voice' ? voiceTranscript : transcript
 
     const userMessage = [
       'Read this newsroom meeting transcript carefully.',
       '',
       'Known reporters in the system: ' + knownReporterNames,
+      attendeeNames ? 'Reporters present in this meeting: ' + attendeeNames : '',
       '',
       'For each story below, find which reporter name is mentioned in connection with that story (for assignment, coverage, or discussion):',
       '',
@@ -129,7 +245,7 @@ export default function AIReportGenerator() {
       'Example output: {"Story headline 1": "Priya Mehta", "Story headline 2": "Ravi Iyer"}',
       '',
       'TRANSCRIPT:',
-      transcript
+      activeTranscript
     ].join('\n')
 
     const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
@@ -138,50 +254,42 @@ export default function AIReportGenerator() {
       body: JSON.stringify({
         model: 'llama-3.3-70b-versatile',
         messages: [
-          {
-            role: 'system',
-            content: 'You are a newsroom assistant that extracts reporter assignments from meeting transcripts. Return only valid JSON with no markdown formatting.'
-          },
+          { role: 'system', content: 'You are a newsroom assistant that extracts reporter assignments from meeting transcripts. Return only valid JSON with no markdown formatting.' },
           { role: 'user', content: userMessage }
         ],
-        temperature: 0,
-        max_tokens: 500
+        temperature: 0, max_tokens: 500
       })
     })
 
     const data = await response.json()
     const raw = data.choices?.[0]?.message?.content || '{}'
-    console.log('AI extraction response:', raw)
-
     try {
       const cleaned = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()
-      const parsed = JSON.parse(cleaned)
-      console.log('Parsed reporter per story:', parsed)
-      return parsed
-    } catch (e) {
-      console.error('Parse error:', e)
-      // Fallback: try to find any reporter name in transcript for each story
+      return JSON.parse(cleaned)
+    } catch {
       const fallback: Record<string, string> = {}
       for (const headline of storyHeadlines) {
-        for (const reporter of reporters) {
+        const attendeeReporters = selectedAttendees.map(id => reporters.find(r => r.id === id)).filter(Boolean)
+        for (const reporter of (attendeeReporters.length ? attendeeReporters : reporters)) {
           const firstName = reporter.name.split(' ')[0].toLowerCase()
-          if (transcript.toLowerCase().includes(firstName)) {
+          if (activeTranscript.toLowerCase().includes(firstName)) {
             fallback[headline] = reporter.name
             break
           }
         }
         if (!fallback[headline]) fallback[headline] = ''
       }
-      console.log('Fallback result:', fallback)
       return fallback
     }
   }
 
   async function handleGenerate() {
-    if (!transcript.trim() || selectedStories.length === 0) {
-      alert('Please select at least one story and paste a transcript')
+    const activeTranscript = transcriptMode === 'voice' ? voiceTranscript : transcript
+    if (!activeTranscript.trim() || selectedStories.length === 0) {
+      alert('Please select at least one story and provide a transcript')
       return
     }
+    if (transcriptMode === 'voice') setTranscript(voiceTranscript)
     setStep('validating')
     setGenerating(true)
 
@@ -193,10 +301,7 @@ export default function AIReportGenerator() {
       for (const storyId of selectedStories) {
         const story = stories.find(s => s.id === storyId)
         if (!story) continue
-
         let mentionedName = reporterPerStory[story.headline] || ''
-
-        // Fallback: partial headline key match
         if (!mentionedName) {
           const matchedKey = Object.keys(reporterPerStory).find(k =>
             k.toLowerCase().includes(story.headline.toLowerCase().slice(0, 15)) ||
@@ -205,47 +310,34 @@ export default function AIReportGenerator() {
           if (matchedKey) mentionedName = reporterPerStory[matchedKey]
         }
 
-        console.log(`Story: "${story.headline}" → Reporter extracted: "${mentionedName}"`)
-
         if (!mentionedName) {
-          const suggestions = getTop3Suggestions(null, [story.category])
           newAssignments.push({
-            storyId, storyHeadline: story.headline,
-            mentionedName: '(not mentioned)',
-            foundInDB: false,
-            issues: ['⚠️ No reporter mentioned in transcript for this story'],
-            suggestions, isOverride: false, status: 'pending'
+            storyId, storyHeadline: story.headline, mentionedName: '(not mentioned)',
+            foundInDB: false, issues: ['⚠️ No reporter mentioned in transcript for this story'],
+            suggestions: getTop3Suggestions(null, [story.category]), isOverride: false, status: 'pending'
           })
           continue
         }
 
-        // Find reporter in DB - improved matching
         const foundReporter = reporters.find(r => {
           const rName = r.name.toLowerCase()
           const mName = mentionedName.toLowerCase()
-          return rName === mName ||
-            rName.includes(mName) ||
-            mName.includes(rName) ||
-            rName.split(' ')[0] === mName.split(' ')[0]
+          return rName === mName || rName.includes(mName) || mName.includes(rName) || rName.split(' ')[0] === mName.split(' ')[0]
         })
 
         if (!foundReporter) {
-          const suggestions = getTop3Suggestions(null, [story.category])
           newAssignments.push({
-            storyId, storyHeadline: story.headline,
-            mentionedName, foundInDB: false,
-            issues: [`❌ "${mentionedName}" does not exist in the system — cannot assign to unknown reporter`],
-            suggestions, isOverride: false, status: 'pending'
+            storyId, storyHeadline: story.headline, mentionedName, foundInDB: false,
+            issues: [`❌ "${mentionedName}" does not exist in the system`],
+            suggestions: getTop3Suggestions(null, [story.category]), isOverride: false, status: 'pending'
           })
         } else {
           const { score, issues } = scoreReporter(foundReporter, [story.category])
           const isBest = score >= 80 && issues.filter(i => i.startsWith('❌')).length === 0
-          const suggestions = isBest ? [] : getTop3Suggestions(foundReporter.id, [story.category])
           newAssignments.push({
-            storyId, storyHeadline: story.headline,
-            mentionedName, foundInDB: true,
-            reporter: foundReporter, issues, suggestions, isOverride: false,
-            finalReporter: isBest ? foundReporter : undefined,
+            storyId, storyHeadline: story.headline, mentionedName, foundInDB: true,
+            reporter: foundReporter, issues, suggestions: isBest ? [] : getTop3Suggestions(foundReporter.id, [story.category]),
+            isOverride: false, finalReporter: isBest ? foundReporter : undefined,
             status: isBest ? 'accepted' : 'pending'
           })
         }
@@ -263,9 +355,7 @@ export default function AIReportGenerator() {
 
   function selectReporterForStory(storyId: string, reporter: any, isOverride = false, reason = '') {
     setStoryAssignments(prev => prev.map(sa =>
-      sa.storyId === storyId
-        ? { ...sa, finalReporter: reporter, isOverride, overrideReason: reason, status: isOverride ? 'override_pending' : 'accepted' }
-        : sa
+      sa.storyId === storyId ? { ...sa, finalReporter: reporter, isOverride, overrideReason: reason, status: isOverride ? 'override_pending' : 'accepted' } : sa
     ))
   }
 
@@ -296,11 +386,7 @@ REPORTER DETAILS: ${JSON.stringify(reporterDetails)}
 STORIES: ${JSON.stringify(selectedStoriesData)}
 TODAY: ${today}
 Generate EXACTLY this JSON:
-{
-  "story_notes": "Comprehensive notes about ALL selected stories — cover each story headline, category, urgency, deadline, key facts from transcript.",
-  "assignment_notes": "For each story, note the CONFIRMED assigned reporter, their beat suitability, workload, and assignment rationale. If override, note the reason.",
-  "rostering_notes": "For each assigned reporter: availability days, capacity utilization, scheduling considerations. Flag any override assignments."
-}
+{"story_notes": "Comprehensive notes about ALL selected stories — cover each story headline, category, urgency, deadline, key facts from transcript.", "assignment_notes": "For each story, note the CONFIRMED assigned reporter, their beat suitability, workload, and assignment rationale. If override, note the reason.", "rostering_notes": "For each assigned reporter: availability days, capacity utilization, scheduling considerations. Flag any override assignments."}
 CRITICAL: Use ONLY confirmed reporter names. Return ONLY valid JSON. No markdown.`
 
     const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
@@ -326,15 +412,13 @@ CRITICAL: Use ONLY confirmed reporter names. Return ONLY valid JSON. No markdown
     if (!parsed) { alert('Failed to generate report'); setGenerating(false); return }
 
     const { score, details } = calculateConfidence(parsed.story_notes, parsed.assignment_notes, parsed.rostering_notes)
-
     const { data: savedReport, error } = await supabase.from('ai_reports').insert({
       story_ids: selectedStories, transcript,
       story_notes: parsed.story_notes, assignment_notes: parsed.assignment_notes, rostering_notes: parsed.rostering_notes,
       confidence_score: score, confidence_details: details, reporter_validation: storyAssignments, status: 'draft'
     }).select().single()
 
-    if (error) { alert('Error saving report: ' + error.message); setGenerating(false); return }
-
+    if (error) { alert('Error saving: ' + error.message); setGenerating(false); return }
     setReport(savedReport)
     setEditedStoryNotes(savedReport.story_notes)
     setEditedAssignmentNotes(savedReport.assignment_notes)
@@ -353,10 +437,8 @@ CRITICAL: Use ONLY confirmed reporter names. Return ONLY valid JSON. No markdown
       if (!sa.finalReporter) return
       const r = sa.finalReporter
       const today = new Date().toISOString().split('T')[0]
-      const avail = availability.find(a => a.reporter_id === r.id)
       const rLeaves = leaves.filter(l => l.reporter_id === r.id)
       const isOnLeave = rLeaves.some(l => l.leave_date === today && l.status === 'acknowledged')
-      const hasAvail = !!(avail?.available_days?.length) || true
       const activeCount = assignments.filter(a => a.reporter_id === r.id).length
       const atCapacity = activeCount >= r.max_stories_per_week
       const story = stories.find(s => s.id === sa.storyId)
@@ -365,16 +447,16 @@ CRITICAL: Use ONLY confirmed reporter names. Return ONLY valid JSON. No markdown
       let score = 0
       const checks: string[] = []
       if (!isOnLeave) { score += 25; checks.push('✅ Not on leave') } else checks.push('❌ On leave')
-      if (hasAvail) { score += 20; checks.push('✅ Available') } else checks.push('❌ No availability')
-      if (!atCapacity) { score += 20; checks.push(`✅ Capacity OK (${activeCount}/${r.max_stories_per_week})`) } else checks.push('❌ At capacity')
+      score += 20; checks.push('✅ Available')
+      if (!atCapacity) { score += 20; checks.push(`✅ Capacity OK`) } else checks.push('❌ At capacity')
       if (beatMatch) { score += 20; checks.push('✅ Beat match') } else checks.push('⚠️ No beat match')
-      if (mentionedInReport) { score += 15; checks.push('✅ Mentioned in report') } else checks.push('⚠️ Not in report')
-      if (sa.isOverride) checks.push('⚠️ Override assignment')
+      if (mentionedInReport) { score += 15; checks.push('✅ In report') } else checks.push('⚠️ Not in report')
+      if (sa.isOverride) checks.push('⚠️ Override')
       details.push({ type: 'reporter', name: `${r.name} → ${sa.storyHeadline}`, score, checks, color: score >= 75 ? t.success : score >= 50 ? t.warning : t.danger })
       total += score; weight += 100
     })
     const tScore = Math.min(100, Math.round(transcript.length / 10))
-    details.push({ type: 'transcript', name: 'Transcript Quality', score: tScore, checks: [transcript.length >= 200 ? '✅ Detailed transcript' : '⚠️ Short transcript'], color: tScore >= 75 ? t.success : tScore >= 50 ? t.warning : t.danger })
+    details.push({ type: 'transcript', name: 'Transcript Quality', score: tScore, checks: [transcript.length >= 200 ? '✅ Detailed' : '⚠️ Short'], color: tScore >= 75 ? t.success : tScore >= 50 ? t.warning : t.danger })
     total += tScore; weight += 100
     return { score: weight > 0 ? Math.min(Math.round(total / (weight / 100)), 100) : 0, details }
   }
@@ -382,8 +464,7 @@ CRITICAL: Use ONLY confirmed reporter names. Return ONLY valid JSON. No markdown
   useEffect(() => {
     if (!report) return
     const { score, details } = calculateConfidence(editedStoryNotes, editedAssignmentNotes, editedRosteringNotes)
-    setLiveConfidence(score)
-    setConfidenceDetails(details)
+    setLiveConfidence(score); setConfidenceDetails(details)
   }, [editedStoryNotes, editedAssignmentNotes, editedRosteringNotes])
 
   async function saveEdits() {
@@ -392,12 +473,10 @@ CRITICAL: Use ONLY confirmed reporter names. Return ONLY valid JSON. No markdown
     await supabase.from('ai_reports').update({
       story_notes: editedStoryNotes, assignment_notes: editedAssignmentNotes, rostering_notes: editedRosteringNotes,
       confidence_score: score, confidence_details: details,
-      editor_modifications: 'Modified by editor on ' + new Date().toLocaleString(),
-      updated_at: new Date().toISOString()
+      editor_modifications: 'Modified on ' + new Date().toLocaleString(), updated_at: new Date().toISOString()
     }).eq('id', report.id)
     setReport({ ...report, story_notes: editedStoryNotes, assignment_notes: editedAssignmentNotes, rostering_notes: editedRosteringNotes, confidence_score: score })
-    setEditingSection(null)
-    loadData()
+    setEditingSection(null); loadData()
   }
 
   async function approveAndAssign() {
@@ -414,11 +493,52 @@ CRITICAL: Use ONLY confirmed reporter names. Return ONLY valid JSON. No markdown
       })
       await supabase.from('stories').update({ status: 'assigned' }).eq('id', sa.storyId)
     }
-    setReport({ ...report, status: 'approved' })
-    setStep('approved')
-    window.dispatchEvent(new Event('newsroom-refresh'))
-    loadData()
-    setApproving(false)
+    setReport({ ...report, status: 'approved' }); setStep('approved')
+    window.dispatchEvent(new Event('newsroom-refresh')); loadData(); setApproving(false)
+  }
+
+  // ── APPROVE FROM SAVED REPORTS ───────────────────────────────
+  async function approveFromSaved(savedReport: any) {
+    if (!window.confirm('Approve this report and assign all stories to the confirmed reporters?')) return
+
+    const validation: StoryReporterAssignment[] = savedReport.reporter_validation || []
+    if (validation.length === 0) {
+      alert('No reporter assignments found in this report. Please regenerate it.')
+      return
+    }
+
+    const confirmedAssignments = validation.filter((sa: any) => sa.finalReporter)
+    if (confirmedAssignments.length === 0) {
+      alert('No confirmed reporters found. Please regenerate and confirm reporters first.')
+      return
+    }
+
+    try {
+      await supabase.from('ai_reports').update({
+        status: 'approved',
+        approved_at: new Date().toISOString()
+      }).eq('id', savedReport.id)
+
+      for (const sa of confirmedAssignments) {
+        if (!sa.finalReporter) continue
+        await supabase.from('assignments').update({ is_active: false }).eq('story_id', sa.storyId).eq('is_active', true)
+        await supabase.from('assignments').insert({
+          story_id: sa.storyId,
+          reporter_id: sa.finalReporter.id,
+          is_active: true,
+          is_override: sa.isOverride || false,
+          override_reason: sa.isOverride ? sa.overrideReason : null,
+          override_status: sa.isOverride ? 'pending' : null
+        })
+        await supabase.from('stories').update({ status: 'assigned' }).eq('id', sa.storyId)
+      }
+
+      window.dispatchEvent(new Event('newsroom-refresh'))
+      loadData()
+      alert(`✅ Report approved! ${confirmedAssignments.length} stor${confirmedAssignments.length > 1 ? 'ies' : 'y'} assigned successfully.`)
+    } catch (err: any) {
+      alert('Error approving report: ' + err.message)
+    }
   }
 
   async function runScoringEngine(storyId: string) {
@@ -432,8 +552,7 @@ CRITICAL: Use ONLY confirmed reporter names. Return ONLY valid JSON. No markdown
       })
       const data = await res.json()
       setScoredReporters(Array.isArray(data) ? data : [])
-      setShowScoreModal(true)
-      setShowOverrideList(false)
+      setShowScoreModal(true); setShowOverrideList(false)
     } catch (err: any) { alert('Scoring engine error: ' + err.message) }
   }
 
@@ -468,6 +587,13 @@ CRITICAL: Use ONLY confirmed reporter names. Return ONLY valid JSON. No markdown
   const cardStyle: React.CSSProperties = { background: t.bgCard, border: `1px solid ${t.borderCard}`, borderRadius: '10px', padding: '24px', boxShadow: t.shadowCard, marginBottom: '20px' }
   const inputStyle: React.CSSProperties = { width: '100%', padding: '10px 14px', background: t.bgInput, border: `1px solid ${t.borderInput}`, borderRadius: '8px', color: t.textPrimary, fontSize: '13px', outline: 'none', boxSizing: 'border-box' as const, fontFamily: 'inherit' }
 
+  const canProceed = () => {
+    if (transcriptMode === 'manual') return transcript.trim().length > 10
+    if (transcriptMode === 'voice') return voiceTranscript.trim().length > 10
+    if (transcriptMode === 'both') return transcript.trim().length > 10
+    return true
+  }
+
   return (
     <div style={{ minHeight: '100vh', background: t.bgPage, fontFamily: '"Inter", "DM Mono", sans-serif', color: t.textPrimary }}>
       <Navbar />
@@ -478,7 +604,7 @@ CRITICAL: Use ONLY confirmed reporter names. Return ONLY valid JSON. No markdown
             <span style={{ color: t.accent, fontSize: '11px', fontWeight: '700', letterSpacing: '1px' }}>AMBIENT SCRIBE</span>
           </div>
           <h1 style={{ color: t.textPrimary, margin: '0 0 6px', fontSize: '24px', fontWeight: '700' }}>Ambient Scribe</h1>
-          <p style={{ color: t.textMuted, margin: 0, fontSize: '13px' }}>Select stories, paste transcript → AI validates reporters → generate & approve report</p>
+          <p style={{ color: t.textMuted, margin: 0, fontSize: '13px' }}>Select stories → choose attendees → record or type transcript → AI validates reporters → generate report</p>
         </div>
 
         <div style={{ display: 'flex', gap: '4px', marginBottom: '24px', padding: '4px', background: t.bgInput, borderRadius: '10px', border: `1px solid ${t.borderCard}`, width: 'fit-content' }}>
@@ -493,14 +619,14 @@ CRITICAL: Use ONLY confirmed reporter names. Return ONLY valid JSON. No markdown
         {activeTab === 'generate' && (
           <>
             {(step === 'input' || step === 'validating') && (
-              <div style={cardStyle}>
-                <h2 style={{ color: t.textPrimary, margin: '0 0 20px', fontSize: '16px', fontWeight: '700' }}>Step 1 — Select Stories & Paste Transcript</h2>
-                <div style={{ marginBottom: '20px' }}>
-                  <label style={{ color: t.textSecondary, fontSize: '12px', fontWeight: '600', display: 'block', marginBottom: '8px' }}>SELECT STORIES <span style={{ color: t.danger }}>*required</span></label>
+              <div>
+                {/* STEP 1: SELECT STORIES */}
+                <div style={cardStyle}>
+                  <h2 style={{ color: t.textPrimary, margin: '0 0 16px', fontSize: '16px', fontWeight: '700' }}>Step 1 — Select Stories</h2>
                   {stories.length === 0 ? (
                     <p style={{ color: t.textMuted, fontSize: '13px' }}>No stories in database yet</p>
                   ) : (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '220px', overflowY: 'auto', padding: '4px' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '200px', overflowY: 'auto', padding: '4px' }}>
                       {stories.filter(s => s.status === 'unassigned' || s.status === 'assigned').map(s => {
                         const isSelected = selectedStories.includes(s.id)
                         const assignment = assignments.find(a => a.story_id === s.id)
@@ -524,26 +650,187 @@ CRITICAL: Use ONLY confirmed reporter names. Return ONLY valid JSON. No markdown
                   )}
                   {selectedStories.length > 0 && <p style={{ color: t.accent, fontSize: '12px', fontWeight: '600', margin: '8px 0 0' }}>{selectedStories.length} stor{selectedStories.length > 1 ? 'ies' : 'y'} selected</p>}
                 </div>
-                <div>
-                  <label style={{ color: t.textSecondary, fontSize: '12px', fontWeight: '600', display: 'block', marginBottom: '6px' }}>DISCUSSION TRANSCRIPT <span style={{ color: t.danger }}>*required</span></label>
-                  <textarea value={transcript} onChange={e => setTranscript(e.target.value)} rows={8}
-                    placeholder="Paste the editor-reporter meeting transcript here. The system will extract reporter names per story and validate them..."
-                    style={{ ...inputStyle, resize: 'vertical' as const, lineHeight: 1.6 }} />
-                  <p style={{ color: t.textMuted, fontSize: '11px', margin: '6px 0 0' }}>{transcript.length} characters</p>
+
+                {/* STEP 2: SELECT ATTENDEES */}
+                <div style={cardStyle}>
+                  <h2 style={{ color: t.textPrimary, margin: '0 0 6px', fontSize: '16px', fontWeight: '700' }}>Step 2 — Select Meeting Attendees <span style={{ color: t.danger }}>*required</span></h2>
+                  <p style={{ color: t.textMuted, fontSize: '13px', margin: '0 0 14px' }}>Select reporters who will be in this meeting. This helps AI extract names more accurately.</p>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    {reporters.map(r => {
+                      const isSelected = selectedAttendees.includes(r.id)
+                      const activeCount = assignments.filter(a => a.reporter_id === r.id).length
+                      return (
+                        <div key={r.id} onClick={() => toggleAttendee(r.id)}
+                          style={{ padding: '10px 14px', borderRadius: '8px', border: `2px solid ${isSelected ? t.accentBorder : t.borderCard}`, background: isSelected ? t.accentBg : t.bgPage, cursor: 'pointer', transition: 'all 0.15s', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: isSelected ? t.accent : t.bgInput, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: '700', color: isSelected ? t.accentText : t.textMuted }}>
+                              {r.name.split(' ').map((n: string) => n[0]).join('').slice(0, 2)}
+                            </div>
+                            <div>
+                              <p style={{ color: isSelected ? t.accent : t.textPrimary, fontSize: '13px', fontWeight: '600', margin: 0 }}>{r.name}</p>
+                              <p style={{ color: t.textMuted, fontSize: '11px', margin: 0 }}>{r.beats?.join(', ')} | {activeCount}/{r.max_stories_per_week} stories</p>
+                            </div>
+                          </div>
+                          {isSelected && <span style={{ color: t.accent, fontSize: '18px', fontWeight: '700' }}>✓</span>}
+                        </div>
+                      )
+                    })}
+                  </div>
+                  {selectedAttendees.length > 0 && (
+                    <p style={{ color: t.accent, fontSize: '12px', fontWeight: '600', margin: '8px 0 0' }}>
+                      {selectedAttendees.length} attendee{selectedAttendees.length > 1 ? 's' : ''} selected: {selectedAttendees.map(id => reporters.find(r => r.id === id)?.name).filter(Boolean).join(', ')}
+                    </p>
+                  )}
                 </div>
-                <button onClick={handleGenerate} disabled={generating || transcript.trim().length < 10 || selectedStories.length === 0}
-                  style={{ marginTop: '20px', padding: '14px 32px', background: generating || transcript.trim().length < 10 || selectedStories.length === 0 ? t.textMuted : t.accent, border: 'none', borderRadius: '8px', color: t.accentText, fontSize: '14px', fontWeight: '700', cursor: 'pointer', fontFamily: 'inherit', opacity: generating ? 0.7 : 1 }}>
-                  {generating ? '🔍 Extracting & Validating Reporters...' : '⚡ GENERATE REPORT'}
-                </button>
+
+                {/* STEP 3: TRANSCRIPT MODE */}
+                <div style={cardStyle}>
+                  <h2 style={{ color: t.textPrimary, margin: '0 0 6px', fontSize: '16px', fontWeight: '700' }}>Step 3 — Choose Transcript Method</h2>
+                  <p style={{ color: t.textMuted, fontSize: '13px', margin: '0 0 16px' }}>How would you like to provide the meeting transcript?</p>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', marginBottom: '24px' }}>
+                    {[
+                      { key: 'both', icon: '🎙️✍️', label: 'Voice + Manual', desc: 'Record meeting AND type transcript — AI merges both for best accuracy' },
+                      { key: 'voice', icon: '🎙️', label: 'Voice Only', desc: 'Record the meeting and let Groq Whisper transcribe automatically' },
+                      { key: 'manual', icon: '✍️', label: 'Manual Only', desc: 'Type or paste your own transcript' },
+                    ].map(mode => (
+                      <div key={mode.key} onClick={() => setTranscriptMode(mode.key as TranscriptMode)}
+                        style={{ padding: '16px', borderRadius: '10px', border: `2px solid ${transcriptMode === mode.key ? t.accentBorder : t.borderCard}`, background: transcriptMode === mode.key ? t.accentBg : t.bgPage, cursor: 'pointer', transition: 'all 0.15s', textAlign: 'center' as const }}>
+                        <div style={{ fontSize: '28px', marginBottom: '8px' }}>{mode.icon}</div>
+                        <p style={{ color: transcriptMode === mode.key ? t.accent : t.textPrimary, fontSize: '13px', fontWeight: '700', margin: '0 0 6px' }}>{mode.label}</p>
+                        <p style={{ color: t.textMuted, fontSize: '11px', margin: 0, lineHeight: 1.4 }}>{mode.desc}</p>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* VOICE RECORDING */}
+                  {(transcriptMode === 'voice' || transcriptMode === 'both') && (
+                    <div style={{ padding: '20px', borderRadius: '10px', border: `1px solid ${t.accentBorder}`, background: t.accentBg, marginBottom: '16px' }}>
+                      <p style={{ color: t.accent, fontSize: '12px', fontWeight: '700', margin: '0 0 14px', letterSpacing: '0.5px' }}>🎙️ VOICE RECORDING — Groq Whisper</p>
+                      {!isRecording && !recordingDone && (
+                        <button onClick={startRecording}
+                          style={{ padding: '14px 32px', background: t.danger, border: 'none', borderRadius: '8px', color: '#fff', fontSize: '14px', fontWeight: '700', cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                          <span style={{ fontSize: '20px' }}>🔴</span> START RECORDING
+                        </button>
+                      )}
+                      {isRecording && (
+                        <div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '16px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 20px', background: t.dangerBg, border: `1px solid ${t.dangerBorder}`, borderRadius: '8px' }}>
+                              <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: t.danger, animation: 'pulse 1s infinite' }} />
+                              <span style={{ color: t.danger, fontSize: '14px', fontWeight: '700' }}>RECORDING — {formatTime(recordingTime)}</span>
+                              <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}`}</style>
+                            </div>
+                            <button onClick={stopRecording}
+                              style={{ padding: '10px 24px', background: t.bgCard, border: `2px solid ${t.danger}`, borderRadius: '8px', color: t.danger, fontSize: '13px', fontWeight: '700', cursor: 'pointer', fontFamily: 'inherit' }}>
+                              ⏹ STOP RECORDING
+                            </button>
+                          </div>
+                          <p style={{ color: t.textMuted, fontSize: '12px', margin: 0 }}>🎤 Microphone is active — speak clearly, recording in progress...</p>
+                        </div>
+                      )}
+                      {transcribing && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '12px 16px', background: t.bgCard, borderRadius: '8px', border: `1px solid ${t.borderCard}` }}>
+                          <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: t.accent, animation: 'pulse 1s infinite' }} />
+                          <span style={{ color: t.textMuted, fontSize: '13px' }}>Groq Whisper is transcribing your recording...</span>
+                        </div>
+                      )}
+                      {voiceTranscript && !transcribing && (
+                        <div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                            <p style={{ color: t.success, fontSize: '12px', fontWeight: '700', margin: 0 }}>✅ Voice transcript ready ({voiceTranscript.length} chars)</p>
+                            <button onClick={() => { setRecordingDone(false); setVoiceTranscript(''); setRecordingTime(0) }}
+                              style={{ padding: '5px 12px', background: 'transparent', border: `1px solid ${t.borderCard}`, borderRadius: '5px', color: t.textMuted, fontSize: '11px', cursor: 'pointer', fontFamily: 'inherit' }}>
+                              Re-record
+                            </button>
+                          </div>
+                          <div style={{ padding: '12px', background: t.bgPage, borderRadius: '8px', border: `1px solid ${t.borderCard}`, maxHeight: '120px', overflowY: 'auto' }}>
+                            <p style={{ color: t.textPrimary, fontSize: '12px', margin: 0, lineHeight: 1.6 }}>{voiceTranscript}</p>
+                          </div>
+                        </div>
+                      )}
+                      {recordingDone && !voiceTranscript && !transcribing && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                          <p style={{ color: t.warning, fontSize: '12px', margin: 0 }}>Recording stopped.</p>
+                          <button onClick={() => transcribeAudio(audioRef.current!)}
+                            style={{ padding: '8px 16px', background: t.accent, border: 'none', borderRadius: '6px', color: t.accentText, fontSize: '12px', fontWeight: '700', cursor: 'pointer', fontFamily: 'inherit' }}>
+                            TRANSCRIBE NOW
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* MANUAL TRANSCRIPT */}
+                  {(transcriptMode === 'manual' || transcriptMode === 'both') && (
+                    <div style={{ marginBottom: transcriptMode === 'both' ? '16px' : '0' }}>
+                      <label style={{ color: t.textSecondary, fontSize: '12px', fontWeight: '600', display: 'block', marginBottom: '6px' }}>
+                        ✍️ {transcriptMode === 'both' ? 'YOUR MANUAL TRANSCRIPT' : 'DISCUSSION TRANSCRIPT'} <span style={{ color: t.danger }}>*required</span>
+                      </label>
+                      <textarea
+                        value={transcriptMode === 'both' ? manualTranscript : transcript}
+                        onChange={e => { if (transcriptMode === 'both') setManualTranscript(e.target.value); else setTranscript(e.target.value) }}
+                        rows={7}
+                        placeholder="Paste your meeting notes or transcript here..."
+                        style={{ ...inputStyle, resize: 'vertical' as const, lineHeight: 1.6 }}
+                      />
+                      <p style={{ color: t.textMuted, fontSize: '11px', margin: '4px 0 0' }}>
+                        {(transcriptMode === 'both' ? manualTranscript : transcript).length} characters
+                      </p>
+                    </div>
+                  )}
+
+                  {/* MERGE BUTTON */}
+                  {transcriptMode === 'both' && voiceTranscript && manualTranscript && !transcript && (
+                    <div style={{ padding: '14px', borderRadius: '8px', border: `1px solid ${t.successBorder}`, background: t.successBg, marginBottom: '16px' }}>
+                      <p style={{ color: t.success, fontSize: '13px', fontWeight: '600', margin: '0 0 10px' }}>✅ Both transcripts ready! Merge them for best accuracy.</p>
+                      <button onClick={mergeTranscripts} disabled={transcribing}
+                        style={{ padding: '10px 24px', background: t.accent, border: 'none', borderRadius: '6px', color: t.accentText, fontSize: '13px', fontWeight: '700', cursor: 'pointer', fontFamily: 'inherit', opacity: transcribing ? 0.7 : 1 }}>
+                        {transcribing ? '⏳ Merging...' : '⚡ MERGE TRANSCRIPTS'}
+                      </button>
+                    </div>
+                  )}
+
+                  {/* MERGED PREVIEW */}
+                  {transcriptMode === 'both' && transcript && (
+                    <div style={{ padding: '14px', borderRadius: '8px', border: `1px solid ${t.accentBorder}`, background: t.accentBg, marginBottom: '16px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                        <p style={{ color: t.accent, fontSize: '12px', fontWeight: '700', margin: 0 }}>✅ MERGED TRANSCRIPT ({transcript.length} chars)</p>
+                        <button onClick={() => setTranscript('')}
+                          style={{ padding: '4px 10px', background: 'transparent', border: `1px solid ${t.borderCard}`, borderRadius: '4px', color: t.textMuted, fontSize: '11px', cursor: 'pointer', fontFamily: 'inherit' }}>
+                          Re-merge
+                        </button>
+                      </div>
+                      <div style={{ padding: '10px', background: t.bgPage, borderRadius: '6px', maxHeight: '100px', overflowY: 'auto' }}>
+                        <p style={{ color: t.textPrimary, fontSize: '12px', margin: 0, lineHeight: 1.6 }}>{transcript}</p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* GENERATE BUTTON */}
+                  <button
+                    onClick={() => {
+                      if (transcriptMode === 'voice') setTranscript(voiceTranscript)
+                      handleGenerate()
+                    }}
+                    disabled={generating || !canProceed() || selectedStories.length === 0 || selectedAttendees.length === 0 || (transcriptMode === 'both' && !transcript)}
+                    style={{ marginTop: '16px', padding: '14px 32px', background: generating || !canProceed() || selectedStories.length === 0 || selectedAttendees.length === 0 || (transcriptMode === 'both' && !transcript) ? t.textMuted : t.accent, border: 'none', borderRadius: '8px', color: t.accentText, fontSize: '14px', fontWeight: '700', cursor: 'pointer', fontFamily: 'inherit', opacity: generating ? 0.7 : 1 }}>
+                    {generating ? '🔍 Extracting & Validating Reporters...' : '⚡ GENERATE REPORT'}
+                  </button>
+                  {selectedStories.length === 0 && <p style={{ color: t.warning, fontSize: '12px', margin: '8px 0 0' }}>⚠️ Please select at least one story above</p>}
+                  {selectedAttendees.length === 0 && <p style={{ color: t.warning, fontSize: '12px', margin: '4px 0 0' }}>⚠️ Please select at least one meeting attendee above</p>}
+                  {transcriptMode === 'both' && !transcript && (voiceTranscript || manualTranscript) && <p style={{ color: t.warning, fontSize: '12px', margin: '8px 0 0' }}>⚠️ Please merge transcripts before generating</p>}
+                </div>
               </div>
             )}
 
+            {/* REPORTER SELECTION */}
             {step === 'reporter_selection' && (
               <div>
                 <div style={{ ...cardStyle, border: `1px solid ${t.accentBorder}`, background: t.accentBg }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div>
-                      <h2 style={{ color: t.accent, margin: '0 0 4px', fontSize: '16px', fontWeight: '700' }}>Step 2 — Confirm Reporter Assignments</h2>
+                      <h2 style={{ color: t.accent, margin: '0 0 4px', fontSize: '16px', fontWeight: '700' }}>Step 4 — Confirm Reporter Assignments</h2>
                       <p style={{ color: t.textMuted, fontSize: '13px', margin: 0 }}>Review extracted reporters for each story. Accept, change, or override.</p>
                     </div>
                     <button onClick={() => setStep('input')} style={{ padding: '8px 16px', background: 'transparent', border: `1px solid ${t.borderCard}`, borderRadius: '6px', color: t.textMuted, fontSize: '12px', cursor: 'pointer', fontFamily: 'inherit' }}>← Back</button>
@@ -554,7 +841,6 @@ CRITICAL: Use ONLY confirmed reporter names. Return ONLY valid JSON. No markdown
                   const story = stories.find(s => s.id === sa.storyId)
                   const isDecided = !!sa.finalReporter
                   const isBestMatch = sa.foundInDB && sa.issues.filter(i => i.startsWith('❌')).length === 0 && sa.issues.length === 0
-
                   return (
                     <div key={sa.storyId} style={{ ...cardStyle, border: `1px solid ${isDecided ? t.successBorder : t.dangerBorder}`, background: isDecided ? `${t.success}06` : `${t.danger}06` }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
@@ -565,18 +851,12 @@ CRITICAL: Use ONLY confirmed reporter names. Return ONLY valid JSON. No markdown
                           </div>
                           <p style={{ color: t.textMuted, fontSize: '12px', margin: 0 }}>Category: {story?.category} | Due: {formatDate(story?.deadline)}</p>
                         </div>
-                        {isDecided && (
-                          <span style={{ padding: '4px 12px', borderRadius: '6px', background: t.successBg, border: `1px solid ${t.successBorder}`, color: t.success, fontSize: '11px', fontWeight: '700' }}>
-                            ✓ {sa.finalReporter?.name} {sa.isOverride ? '(OVERRIDE)' : ''}
-                          </span>
-                        )}
+                        {isDecided && <span style={{ padding: '4px 12px', borderRadius: '6px', background: t.successBg, border: `1px solid ${t.successBorder}`, color: t.success, fontSize: '11px', fontWeight: '700' }}>✓ {sa.finalReporter?.name} {sa.isOverride ? '(OVERRIDE)' : ''}</span>}
                       </div>
 
                       <div style={{ padding: '14px', borderRadius: '8px', border: `1px solid ${sa.foundInDB ? t.accentBorder : t.dangerBorder}`, background: sa.foundInDB ? t.accentBg : t.dangerBg, marginBottom: '14px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-                          <span style={{ padding: '3px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: '700', background: sa.foundInDB ? `${t.accent}20` : `${t.danger}20`, color: sa.foundInDB ? t.accent : t.danger, border: `1px solid ${sa.foundInDB ? t.accentBorder : t.dangerBorder}` }}>
-                            {sa.foundInDB ? 'FOUND IN DB' : 'NOT IN DB'}
-                          </span>
+                          <span style={{ padding: '3px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: '700', background: sa.foundInDB ? `${t.accent}20` : `${t.danger}20`, color: sa.foundInDB ? t.accent : t.danger, border: `1px solid ${sa.foundInDB ? t.accentBorder : t.dangerBorder}` }}>{sa.foundInDB ? 'FOUND IN DB' : 'NOT IN DB'}</span>
                           <span style={{ color: t.textPrimary, fontSize: '13px', fontWeight: '600' }}>
                             Mentioned: "{sa.mentionedName}"
                             {sa.reporter && sa.reporter.name !== sa.mentionedName && <span style={{ color: t.textMuted, fontWeight: '400' }}> → matched to {sa.reporter.name}</span>}
@@ -654,8 +934,7 @@ CRITICAL: Use ONLY confirmed reporter names. Return ONLY valid JSON. No markdown
                                   const rOnLeave = leaves.some(l => l.reporter_id === r.id && l.leave_date === today && l.status === 'acknowledged')
                                   const isSug = sa.suggestions.find(s => s.id === r.id)
                                   return (
-                                    <div key={r.id}
-                                      onClick={() => { setOverridePickingFor(sa.storyId); setOverridePickingReporter(r) }}
+                                    <div key={r.id} onClick={() => { setOverridePickingFor(sa.storyId); setOverridePickingReporter(r) }}
                                       style={{ padding: '10px 12px', borderRadius: '6px', border: `1px solid ${overridePickingReporter?.id === r.id && overridePickingFor === sa.storyId ? t.dangerBorder : t.borderCard}`, background: overridePickingReporter?.id === r.id && overridePickingFor === sa.storyId ? t.dangerBg : t.bgCard, cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                       <div>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '2px' }}>
@@ -703,7 +982,7 @@ CRITICAL: Use ONLY confirmed reporter names. Return ONLY valid JSON. No markdown
 
                 {allStoriesDecided() && (
                   <div style={{ ...cardStyle, border: `1px solid ${t.successBorder}`, background: t.successBg }}>
-                    <h3 style={{ color: t.success, margin: '0 0 8px', fontSize: '14px', fontWeight: '700' }}>✓ All reporters confirmed! Ready to generate report.</h3>
+                    <h3 style={{ color: t.success, margin: '0 0 8px', fontSize: '14px', fontWeight: '700' }}>✓ All reporters confirmed!</h3>
                     <div style={{ marginBottom: '14px' }}>
                       {storyAssignments.map(sa => (
                         <div key={sa.storyId} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: `1px solid ${t.borderCard}` }}>
@@ -721,6 +1000,7 @@ CRITICAL: Use ONLY confirmed reporter names. Return ONLY valid JSON. No markdown
               </div>
             )}
 
+            {/* REPORT PREVIEW */}
             {(step === 'report_preview' || step === 'approved') && report && (
               <>
                 <div style={{ ...cardStyle, border: `2px solid ${getConfidenceColor(liveConfidence)}40`, background: `${getConfidenceColor(liveConfidence)}06` }}>
@@ -755,7 +1035,7 @@ CRITICAL: Use ONLY confirmed reporter names. Return ONLY valid JSON. No markdown
                 </div>
 
                 <div style={cardStyle}>
-                  <h2 style={{ color: t.textPrimary, margin: '0 0 14px', fontSize: '16px', fontWeight: '700' }}>Step 3 — Confirmed Assignments</h2>
+                  <h2 style={{ color: t.textPrimary, margin: '0 0 14px', fontSize: '16px', fontWeight: '700' }}>Step 5 — Confirmed Assignments</h2>
                   {storyAssignments.map(sa => (
                     <div key={sa.storyId} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', borderRadius: '8px', border: `1px solid ${sa.isOverride ? t.warningBorder : t.successBorder}`, background: sa.isOverride ? t.warningBg : t.successBg, marginBottom: '8px' }}>
                       <div>
@@ -771,7 +1051,7 @@ CRITICAL: Use ONLY confirmed reporter names. Return ONLY valid JSON. No markdown
 
                 <div style={cardStyle}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                    <h2 style={{ color: t.textPrimary, margin: 0, fontSize: '16px', fontWeight: '700' }}>Step 4 — Review & Edit Report</h2>
+                    <h2 style={{ color: t.textPrimary, margin: 0, fontSize: '16px', fontWeight: '700' }}>Step 6 — Review & Edit Report</h2>
                     {editingSection && (
                       <div style={{ display: 'flex', gap: '8px' }}>
                         <button onClick={() => setEditingSection(null)} style={{ padding: '8px 16px', background: 'transparent', border: `1px solid ${t.borderCard}`, borderRadius: '6px', color: t.textMuted, fontSize: '12px', cursor: 'pointer', fontFamily: 'inherit' }}>CANCEL</button>
@@ -805,7 +1085,7 @@ CRITICAL: Use ONLY confirmed reporter names. Return ONLY valid JSON. No markdown
 
                 {step === 'report_preview' && (
                   <div style={{ ...cardStyle, border: `1px solid ${t.successBorder}`, background: t.successBg }}>
-                    <h2 style={{ color: t.success, margin: '0 0 8px', fontSize: '16px', fontWeight: '700' }}>Step 5 — Approve & Assign</h2>
+                    <h2 style={{ color: t.success, margin: '0 0 8px', fontSize: '16px', fontWeight: '700' }}>Step 7 — Approve & Assign</h2>
                     <p style={{ color: t.textMuted, fontSize: '13px', margin: '0 0 16px' }}>Approving will assign all stories, make report visible to ALL reporters, and notify override reporters.</p>
                     <button onClick={approveAndAssign} disabled={approving}
                       style={{ padding: '14px 40px', background: approving ? t.textMuted : t.success, border: 'none', borderRadius: '8px', color: '#fff', fontSize: '14px', fontWeight: '700', cursor: 'pointer', fontFamily: 'inherit', opacity: approving ? 0.7 : 1 }}>
@@ -817,7 +1097,6 @@ CRITICAL: Use ONLY confirmed reporter names. Return ONLY valid JSON. No markdown
                 {step === 'approved' && (
                   <div style={{ ...cardStyle, border: `1px solid ${t.successBorder}`, background: t.successBg }}>
                     <p style={{ color: t.success, fontSize: '14px', fontWeight: '700', margin: '0 0 12px' }}>✓ Report Approved — Stories Assigned — Visible to All Reporters</p>
-                    <p style={{ color: t.textMuted, fontSize: '13px', margin: '0 0 16px' }}>Override reporters have been notified. You can re-run scoring engine per story.</p>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                       {selectedStories.map(storyId => {
                         const story = stories.find(s => s.id === storyId)
@@ -837,6 +1116,7 @@ CRITICAL: Use ONLY confirmed reporter names. Return ONLY valid JSON. No markdown
           </>
         )}
 
+        {/* SAVED REPORTS TAB */}
         {activeTab === 'reports' && (
           <div>
             {savedReports.length === 0 ? (
@@ -859,6 +1139,12 @@ CRITICAL: Use ONLY confirmed reporter names. Return ONLY valid JSON. No markdown
                           style={{ padding: '8px 16px', background: t.accentBg, border: `1px solid ${t.accentBorder}`, borderRadius: '6px', color: t.accent, fontSize: '11px', fontWeight: '700', cursor: 'pointer', fontFamily: 'inherit' }}>
                           READ REPORT
                         </button>
+                        {r.status === 'draft' && (
+                          <button onClick={() => approveFromSaved(r)}
+                            style={{ padding: '8px 16px', background: t.successBg, border: `1px solid ${t.successBorder}`, borderRadius: '6px', color: t.success, fontSize: '11px', fontWeight: '700', cursor: 'pointer', fontFamily: 'inherit' }}>
+                            ✓ APPROVE & ASSIGN
+                          </button>
+                        )}
                       </div>
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
@@ -877,6 +1163,7 @@ CRITICAL: Use ONLY confirmed reporter names. Return ONLY valid JSON. No markdown
         )}
       </main>
 
+      {/* SCORE MODAL */}
       {showScoreModal && (
         <div style={{ position: 'fixed', inset: 0, background: t.overlayBg, display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
           onClick={e => { if (e.target === e.currentTarget) { setShowScoreModal(false); setShowOverrideList(false) } }}>
@@ -924,8 +1211,7 @@ CRITICAL: Use ONLY confirmed reporter names. Return ONLY valid JSON. No markdown
             )}
             <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: `1px solid ${t.borderCard}` }}>
               {!showOverrideList ? (
-                <button onClick={() => setShowOverrideList(true)}
-                  style={{ width: '100%', padding: '10px', background: t.dangerBg, border: `1px solid ${t.dangerBorder}`, borderRadius: '8px', color: t.danger, fontSize: '12px', fontWeight: '700', cursor: 'pointer', fontFamily: 'inherit' }}>
+                <button onClick={() => setShowOverrideList(true)} style={{ width: '100%', padding: '10px', background: t.dangerBg, border: `1px solid ${t.dangerBorder}`, borderRadius: '8px', color: t.danger, fontSize: '12px', fontWeight: '700', cursor: 'pointer', fontFamily: 'inherit' }}>
                   ⚠️ OVERRIDE — Assign to a different reporter
                 </button>
               ) : (
@@ -966,6 +1252,7 @@ CRITICAL: Use ONLY confirmed reporter names. Return ONLY valid JSON. No markdown
         </div>
       )}
 
+      {/* POST OVERRIDE MODAL */}
       {postOverrideModal && (
         <div style={{ position: 'fixed', inset: 0, background: t.overlayBg, display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 }}
           onClick={e => { if (e.target === e.currentTarget) { setPostOverrideModal(null); setPostOverrideReason('') } }}>
@@ -976,9 +1263,9 @@ CRITICAL: Use ONLY confirmed reporter names. Return ONLY valid JSON. No markdown
             </div>
             <p style={{ color: t.textMuted, fontSize: '13px', margin: '0 0 16px' }}>Assigning to: <span style={{ color: t.danger, fontWeight: '700' }}>{postOverrideModal?.name}</span></p>
             <div style={{ padding: '12px', background: t.dangerBg, border: `1px solid ${t.dangerBorder}`, borderRadius: '8px', marginBottom: '16px' }}>
-              <p style={{ color: t.danger, fontSize: '12px', margin: 0 }}>⚠️ Reporter will be notified and must accept or reject with a reason.</p>
+              <p style={{ color: t.danger, fontSize: '12px', margin: 0 }}>⚠️ Reporter will be notified and must accept or reject.</p>
             </div>
-            <label style={{ color: t.textSecondary, fontSize: '12px', fontWeight: '600', display: 'block', marginBottom: '6px' }}>REASON FOR OVERRIDE <span style={{ color: t.danger }}>*required</span></label>
+            <label style={{ color: t.textSecondary, fontSize: '12px', fontWeight: '600', display: 'block', marginBottom: '6px' }}>REASON <span style={{ color: t.danger }}>*required</span></label>
             <textarea value={postOverrideReason} onChange={e => setPostOverrideReason(e.target.value)} rows={3}
               placeholder="e.g. Urgent breaking news, best beat match despite unavailability..."
               style={{ ...inputStyle, resize: 'none' as const, marginBottom: '16px' }} />
@@ -994,6 +1281,7 @@ CRITICAL: Use ONLY confirmed reporter names. Return ONLY valid JSON. No markdown
         </div>
       )}
 
+      {/* VIEW REPORT MODAL */}
       {viewReportModal && (
         <div style={{ position: 'fixed', inset: 0, background: t.overlayBg, display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 3000 }}
           onClick={e => { if (e.target === e.currentTarget) setViewReportModal(null) }}>
@@ -1004,9 +1292,7 @@ CRITICAL: Use ONLY confirmed reporter names. Return ONLY valid JSON. No markdown
                   <span style={{ color: t.accent, fontSize: '10px', fontWeight: '700', letterSpacing: '1px' }}>AMBIENT SCRIBE REPORT</span>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <span style={{ padding: '3px 10px', borderRadius: '4px', fontSize: '10px', fontWeight: '700', background: viewReportModal.status === 'approved' ? t.successBg : t.warningBg, color: viewReportModal.status === 'approved' ? t.success : t.warning, border: `1px solid ${viewReportModal.status === 'approved' ? t.successBorder : t.warningBorder}` }}>
-                    {viewReportModal.status?.toUpperCase()}
-                  </span>
+                  <span style={{ padding: '3px 10px', borderRadius: '4px', fontSize: '10px', fontWeight: '700', background: viewReportModal.status === 'approved' ? t.successBg : t.warningBg, color: viewReportModal.status === 'approved' ? t.success : t.warning, border: `1px solid ${viewReportModal.status === 'approved' ? t.successBorder : t.warningBorder}` }}>{viewReportModal.status?.toUpperCase()}</span>
                   <span style={{ color: t.textMuted, fontSize: '12px' }}>Generated: {formatDate(viewReportModal.created_at?.split('T')[0])}</span>
                   {viewReportModal.approved_at && <span style={{ color: t.textMuted, fontSize: '12px' }}>| Approved: {formatDate(viewReportModal.approved_at?.split('T')[0])}</span>}
                   <span style={{ fontSize: '18px', fontWeight: '800', color: getConfidenceColor(viewReportModal.confidence_score) }}>{viewReportModal.confidence_score}%</span>
