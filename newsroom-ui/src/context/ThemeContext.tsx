@@ -148,21 +148,41 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     localStorage.setItem('nr_background', b)
   }
 
-  const t = theme === 'dark' ? darkTokens : lightTokens
-
+  const baseTokens = theme === 'dark' ? darkTokens : lightTokens
   const preset = backgroundPresets[background]
-  const bgMain = preset?.value || t.bgPage
+  const bgMain = preset?.value || baseTokens.bgPage
+
+  // When custom background is selected, make page background transparent
+  // so the body gradient shows through
+  const t = background !== 'default'
+    ? { ...baseTokens, bgPage: 'transparent' }
+    : baseTokens
 
   useEffect(() => {
     document.documentElement.setAttribute('data-fontsize', fontSize)
+
+    // Set CSS variables
     document.documentElement.style.setProperty('--bg-page', t.bgPage)
     document.documentElement.style.setProperty('--text-primary', t.textPrimary)
-    // FIXED: set CSS variable so App.tsx zoom wrapper can reference it
     document.documentElement.style.setProperty('--bg-main', bgMain)
+
+    // ── KEY FIX: Actually apply background to html and body ──
+    const appliedBg = background !== 'default' && preset?.value
+      ? preset.value
+      : t.bgPage
+
+    document.documentElement.style.background = appliedBg
+    document.documentElement.style.backgroundAttachment = 'fixed'
+    document.documentElement.style.minHeight = '100%'
+
+    document.body.style.background = appliedBg
+    document.body.style.backgroundAttachment = 'fixed'
+    document.body.style.minHeight = '100vh'
     document.body.style.color = t.textPrimary
     document.body.style.margin = '0'
     document.body.style.padding = '0'
-  }, [theme, fontSize, background])
+
+  }, [theme, fontSize, background, bgMain, t.bgPage, t.textPrimary, preset?.value])
 
   return (
     <ThemeContext.Provider value={{

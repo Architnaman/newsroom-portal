@@ -40,6 +40,17 @@ export default function Navbar() {
     const defaultBg = themeMode === 'dark' ? '#0a0f1a' : '#eef4ff'
     const finalBg = bgValue || defaultBg
     document.documentElement.style.setProperty('--bg-main', finalBg)
+    document.documentElement.style.background = finalBg
+    document.documentElement.style.backgroundAttachment = 'fixed'
+    document.documentElement.style.minHeight = '100%'
+    document.body.style.background = finalBg
+    document.body.style.backgroundAttachment = 'fixed'
+    document.body.style.minHeight = '100vh'
+    // Force all page wrappers to be transparent so body gradient shows through
+    const appDiv = document.querySelector('#root > div') as HTMLElement
+    if (appDiv) {
+      appDiv.style.background = 'transparent'
+    }
   }
 
   useEffect(() => {

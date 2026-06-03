@@ -22,7 +22,7 @@ function ProtectedRoute({ children, requiredRole }: {
   const { t } = useTheme()
 
   if (loading) return (
-    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-main, #eef4ff)' }}>
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: t.bgPage }}>
       <div style={{ textAlign: 'center' }}>
         <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: t.accent, margin: '0 auto 14px', animation: 'pulse 1s infinite' }} />
         <p style={{ color: t.textMuted, fontFamily: 'monospace', fontSize: '13px' }}>Loading...</p>
@@ -46,7 +46,7 @@ function ProtectedRoute({ children, requiredRole }: {
 
 function AppRoutes() {
   const { user, role } = useAuth()
-  const { fontSize } = useTheme()
+  const { fontSize, bgMain, background } = useTheme()
 
   function getHome() {
     if (role === 'admin') return '/admin'
@@ -55,7 +55,7 @@ function AppRoutes() {
   }
 
   return (
-    <div style={{ zoom: fontZoomMap[fontSize], minHeight: '100vh', background: 'var(--bg-main, #eef4ff)' }}>
+    <div style={{ zoom: fontZoomMap[fontSize], minHeight: '100vh', background: 'transparent' }}>
       <Routes>
         <Route path="/login" element={
           user ? <Navigate to={getHome()} replace /> : <Login />
