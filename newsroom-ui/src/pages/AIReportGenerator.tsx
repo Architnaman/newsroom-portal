@@ -233,63 +233,154 @@ export default function AIReportGenerator() {
       .sort((a, b) => b.score - a.score)
       .slice(0, 3)
   }
+async function extractReporterPerStory(storyHeadlines: string[]): Promise<Record<string, string>> {
+  const knownReporterNames = reporters.map(r => r.name).join(', ')
+  const attendeeNames = selectedAttendees.map(id => reporters.find(r => r.id === id)?.name).filter(Boolean).join(', ')
+  const activeTranscript = transcriptMode === 'voice' ? voiceTranscript : transcript
 
-  async function extractReporterPerStory(storyHeadlines: string[]): Promise<Record<string, string>> {
-    const knownReporterNames = reporters.map(r => r.name).join(', ')
-    const attendeeNames = selectedAttendees.map(id => reporters.find(r => r.id === id)?.name).filter(Boolean).join(', ')
-    const activeTranscript = transcriptMode === 'voice' ? voiceTranscript : transcript
-
-    const userMessage = [
-      'Read this newsroom meeting transcript carefully.',
-      '',
-      'Known reporters in the system: ' + knownReporterNames,
-      attendeeNames ? 'Reporters present in this meeting: ' + attendeeNames : '',
-      '',
-      'For each story below, find which reporter name is mentioned in connection with that story (for assignment, coverage, or discussion):',
-      '',
-      ...storyHeadlines.map((h, i) => `Story ${i + 1}: "${h}"`),
-      '',
-      'Return ONLY a JSON object. Keys must be the exact story headlines. Values must be the reporter name found, or empty string if none found.',
-      'Example output: {"Story headline 1": "Priya Mehta", "Story headline 2": "Ravi Iyer"}',
-      '',
-      'TRANSCRIPT:',
-      activeTranscript
-    ].join('\n')
-
+  // ── LAYER 1: Full AI extraction with strong prompt ───────────
+  try {
     const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + GROQ_API_KEY },
       body: JSON.stringify({
         model: 'llama-3.3-70b-versatile',
         messages: [
-          { role: 'system', content: 'You are a newsroom assistant that extracts reporter assignments from meeting transcripts. Return only valid JSON with no markdown formatting.' },
-          { role: 'user', content: userMessage }
+          {
+            role: 'system',
+            content: `You are analyzing a newsroom editorial meeting transcript.
+Your job: for each story headline, find the reporter being assigned to cover it.
+
+KNOWN REPORTERS IN SYSTEM: ${knownReporterNames}
+REPORTERS IN THIS MEETING: ${attendeeNames}
+
+Rules:
+- Look for phrases like "assign X to cover", "X will handle", "give it to X", "X should cover", "let X do it", "X is covering"
+- Match names to the KNOWN REPORTERS list using fuzzy matching (Priya = Priya Mehta, Ravi = Ravi Iyer)
+- If a reporter is mentioned near a story headline, they are likely assigned to it
+- Return the FULL name from the KNOWN REPORTERS list, not the nickname
+- If truly not found for a story, return empty string
+
+Return ONLY a raw JSON object, no markdown, no explanation.
+Format: {"exact story headline": "Full Reporter Name"}`
+          },
+          {
+            role: 'user',
+            content: `Stories to find reporters for:\n${storyHeadlines.map((h, i) => `${i + 1}. "${h}"`).join('\n')}\n\nTRANSCRIPT:\n${activeTranscript}`
+          }
         ],
-        temperature: 0, max_tokens: 500
+        temperature: 0,
+        max_tokens: 600
       })
     })
 
     const data = await response.json()
     const raw = data.choices?.[0]?.message?.content || '{}'
-    try {
-      const cleaned = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()
-      return JSON.parse(cleaned)
-    } catch {
-      const fallback: Record<string, string> = {}
-      for (const headline of storyHeadlines) {
-        const attendeeReporters = selectedAttendees.map(id => reporters.find(r => r.id === id)).filter(Boolean)
-        for (const reporter of (attendeeReporters.length ? attendeeReporters : reporters)) {
-          const firstName = reporter.name.split(' ')[0].toLowerCase()
-          if (activeTranscript.toLowerCase().includes(firstName)) {
-            fallback[headline] = reporter.name
-            break
+    console.log('Layer 1 AI response:', raw)
+
+    const cleaned = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()
+    const parsed = JSON.parse(cleaned)
+
+    // Validate — ensure values match known reporters
+    const result: Record<string, string> = {}
+    for (const headline of storyHeadlines) {
+      let name = parsed[headline] || ''
+
+      // Try partial key match if exact key not found
+      if (!name) {
+        const matchedKey = Object.keys(parsed).find(k =>
+          k.toLowerCase().includes(headline.toLowerCase().slice(0, 20)) ||
+          headline.toLowerCase().includes(k.toLowerCase().slice(0, 20))
+        )
+        if (matchedKey) name = parsed[matchedKey]
+      }
+
+      // Validate against known reporters — fix nicknames to full names
+      if (name) {
+        const matched = reporters.find(r =>
+          r.name.toLowerCase() === name.toLowerCase() ||
+          r.name.toLowerCase().includes(name.toLowerCase()) ||
+          name.toLowerCase().includes(r.name.toLowerCase().split(' ')[0])
+        )
+        result[headline] = matched ? matched.name : name
+      } else {
+        result[headline] = ''
+      }
+    }
+
+    console.log('Layer 1 result:', result)
+
+    // If all empty, fall through to Layer 2
+    const hasAnyResult = Object.values(result).some(v => v.trim().length > 0)
+    if (hasAnyResult) return result
+
+  } catch (e) {
+    console.warn('Layer 1 failed:', e)
+  }
+
+  // ── LAYER 2: Keyword proximity scan ─────────────────────────
+  console.log('Trying Layer 2: keyword proximity scan')
+  const result2: Record<string, string> = {}
+  const attendeeReporters = selectedAttendees
+    .map(id => reporters.find(r => r.id === id))
+    .filter(Boolean) as any[]
+  const searchReporters = attendeeReporters.length > 0 ? attendeeReporters : reporters
+
+  const transcriptLower = activeTranscript.toLowerCase()
+
+  for (const headline of storyHeadlines) {
+    // Get key words from headline (skip short words)
+    const keywords = headline.toLowerCase().split(' ').filter(w => w.length > 3)
+    let bestReporter = ''
+    let bestScore = 0
+
+    for (const reporter of searchReporters) {
+      const firstName = reporter.name.split(' ')[0].toLowerCase()
+      const fullName = reporter.name.toLowerCase()
+      let score = 0
+
+      // Find positions where reporter name appears
+      const namePositions: number[] = []
+      let pos = transcriptLower.indexOf(firstName)
+      while (pos !== -1) {
+        namePositions.push(pos)
+        pos = transcriptLower.indexOf(firstName, pos + 1)
+      }
+
+      // For each name occurrence, check if a story keyword appears nearby (within 150 chars)
+      for (const namePos of namePositions) {
+        const window = transcriptLower.substring(Math.max(0, namePos - 150), namePos + 150)
+        for (const keyword of keywords) {
+          if (window.includes(keyword)) {
+            score += 2
           }
         }
-        if (!fallback[headline]) fallback[headline] = ''
+        // Bonus: assignment language nearby
+        const assignWords = ['assign', 'cover', 'handle', 'give', 'take', 'do it', 'will do', 'should']
+        for (const word of assignWords) {
+          if (window.includes(word)) score += 1
+        }
       }
-      return fallback
+
+      if (score > bestScore) {
+        bestScore = score
+        bestReporter = reporter.name
+      }
     }
+
+    result2[headline] = bestScore > 0 ? bestReporter : ''
+    console.log(`Layer 2 - "${headline}": ${bestReporter} (score: ${bestScore})`)
   }
+
+  const hasLayer2Result = Object.values(result2).some(v => v.trim().length > 0)
+  if (hasLayer2Result) return result2
+
+  // ── LAYER 3: Return empty — UI will show suggestions ────────
+  console.log('All layers failed — returning empty, UI will show suggestions')
+  const result3: Record<string, string> = {}
+  for (const headline of storyHeadlines) result3[headline] = ''
+  return result3
+}
 
   async function handleGenerate() {
     const activeTranscript = transcriptMode === 'voice' ? voiceTranscript : transcript
