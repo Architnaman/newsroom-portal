@@ -2,7 +2,7 @@ import { createContext, useContext, useState, useEffect, ReactNode } from 'react
 
 type Theme = 'dark' | 'light'
 type FontSize = 'sm' | 'md' | 'lg' | 'xl'
-type Background = 'default' | 'blue' | 'purple' | 'green' | 'midnight' | 'ocean' | 'sunset' | 'forest'
+type Background = 'default' | 'blue' | 'purple' | 'green' | 'midnight' | 'ocean' | 'sunset' | 'forest' | 'rose' | 'arctic' | 'golden' | 'candy' | 'aurora' | 'coral' | 'lime' | 'peach'
 
 interface ThemeContextType {
   theme: Theme
@@ -96,14 +96,24 @@ const lightTokens = {
 }
 
 export const backgroundPresets: Record<Background, { label: string, value: string, preview: string }> = {
-  default:  { label: 'Default',   value: '',                                                                preview: '#eef4ff' },
-  blue:     { label: 'Deep Blue', value: 'linear-gradient(135deg, #0a0f2e 0%, #0d1b3e 50%, #0a0f1a 100%)', preview: '#0d1b3e' },
-  purple:   { label: 'Purple',    value: 'linear-gradient(135deg, #1a0a2e 0%, #2d1b4e 50%, #0a0f1a 100%)', preview: '#2d1b4e' },
-  green:    { label: 'Forest',    value: 'linear-gradient(135deg, #0a1f0a 0%, #0d2e1a 50%, #0a0f1a 100%)', preview: '#0d2e1a' },
-  midnight: { label: 'Midnight',  value: 'linear-gradient(135deg, #000000 0%, #0d0d0d 50%, #111111 100%)', preview: '#0d0d0d' },
-  ocean:    { label: 'Ocean',     value: 'linear-gradient(135deg, #001a2e 0%, #003d5c 50%, #0a1628 100%)', preview: '#003d5c' },
-  sunset:   { label: 'Sunset',    value: 'linear-gradient(135deg, #1a0a00 0%, #2e1a0a 50%, #1a0f0a 100%)', preview: '#2e1a0a' },
-  forest:   { label: 'Emerald',   value: 'linear-gradient(135deg, #001a1a 0%, #003333 50%, #001a2e 100%)', preview: '#003333' },
+  // ── DARK BACKGROUNDS ─────────────────────────────────────────
+  default:  { label: 'Default',   value: '',                                                                  preview: '#eef4ff' },
+  blue:     { label: 'Deep Blue', value: 'linear-gradient(135deg, #0a0f2e 0%, #0d1b3e 50%, #0a0f1a 100%)',   preview: '#0d1b3e' },
+  purple:   { label: 'Purple',    value: 'linear-gradient(135deg, #1a0a2e 0%, #2d1b4e 50%, #0a0f1a 100%)',   preview: '#2d1b4e' },
+  green:    { label: 'Forest',    value: 'linear-gradient(135deg, #0a1f0a 0%, #0d2e1a 50%, #0a0f1a 100%)',   preview: '#0d2e1a' },
+  midnight: { label: 'Midnight',  value: 'linear-gradient(135deg, #000000 0%, #0d0d0d 50%, #111111 100%)',   preview: '#0d0d0d' },
+  ocean:    { label: 'Ocean',     value: 'linear-gradient(135deg, #001a2e 0%, #003d5c 50%, #0a1628 100%)',   preview: '#003d5c' },
+  sunset:   { label: 'Sunset',    value: 'linear-gradient(135deg, #1a0a00 0%, #2e1a0a 50%, #1a0f0a 100%)',   preview: '#2e1a0a' },
+  forest:   { label: 'Emerald',   value: 'linear-gradient(135deg, #001a1a 0%, #003333 50%, #001a2e 100%)',   preview: '#003333' },
+  // ── BRIGHT BACKGROUNDS ───────────────────────────────────────
+  rose:     { label: 'Rose',      value: 'linear-gradient(135deg, #fff0f3 0%, #ffd6e0 50%, #ffb3c6 100%)',   preview: '#ffd6e0' },
+  arctic:   { label: 'Arctic',    value: 'linear-gradient(135deg, #e0f7fa 0%, #b2ebf2 50%, #e0f2ff 100%)',   preview: '#b2ebf2' },
+  golden:   { label: 'Golden',    value: 'linear-gradient(135deg, #fffde7 0%, #fff3b0 50%, #ffe57a 100%)',   preview: '#fff3b0' },
+  candy:    { label: 'Candy',     value: 'linear-gradient(135deg, #fce4ec 0%, #f8bbd0 50%, #e1bee7 100%)',   preview: '#f8bbd0' },
+  aurora:   { label: 'Aurora',    value: 'linear-gradient(135deg, #e8f5e9 0%, #b2dfdb 50%, #e3f2fd 100%)',   preview: '#b2dfdb' },
+  coral:    { label: 'Coral',     value: 'linear-gradient(135deg, #fff3e0 0%, #ffe0b2 50%, #ffccbc 100%)',   preview: '#ffe0b2' },
+  lime:     { label: 'Lime',      value: 'linear-gradient(135deg, #f9fbe7 0%, #dcedc8 50%, #c5e1a5 100%)',   preview: '#dcedc8' },
+  peach:    { label: 'Peach',     value: 'linear-gradient(135deg, #fff8f0 0%, #ffe5cc 50%, #ffd4a8 100%)',   preview: '#ffe5cc' },
 }
 
 export const fontZoomMap: Record<FontSize, number> = {
@@ -152,8 +162,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const preset = backgroundPresets[background]
   const bgMain = preset?.value || baseTokens.bgPage
 
-  // When custom background is selected, make page background transparent
-  // so the body gradient shows through
+  // When custom background selected, make page transparent so gradient shows through
   const t = background !== 'default'
     ? { ...baseTokens, bgPage: 'transparent' }
     : baseTokens
@@ -166,10 +175,10 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     document.documentElement.style.setProperty('--text-primary', t.textPrimary)
     document.documentElement.style.setProperty('--bg-main', bgMain)
 
-    // ── KEY FIX: Actually apply background to html and body ──
+    // Apply background to html and body
     const appliedBg = background !== 'default' && preset?.value
       ? preset.value
-      : t.bgPage
+      : baseTokens.bgPage
 
     document.documentElement.style.background = appliedBg
     document.documentElement.style.backgroundAttachment = 'fixed'
