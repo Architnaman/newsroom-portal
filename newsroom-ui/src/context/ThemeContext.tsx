@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, ReactNode } from 'react'
+import { createContext, useContext, useState, useEffect, type ReactNode } from 'react'
 
 type Theme = 'dark' | 'light'
 type FontSize = 'sm' | 'md' | 'lg' | 'xl'
@@ -96,7 +96,6 @@ const lightTokens = {
 }
 
 export const backgroundPresets: Record<Background, { label: string, value: string, preview: string }> = {
-  // ── DARK BACKGROUNDS ─────────────────────────────────────────
   default:  { label: 'Default',   value: '',                                                                  preview: '#eef4ff' },
   blue:     { label: 'Deep Blue', value: 'linear-gradient(135deg, #0a0f2e 0%, #0d1b3e 50%, #0a0f1a 100%)',   preview: '#0d1b3e' },
   purple:   { label: 'Purple',    value: 'linear-gradient(135deg, #1a0a2e 0%, #2d1b4e 50%, #0a0f1a 100%)',   preview: '#2d1b4e' },
@@ -105,7 +104,6 @@ export const backgroundPresets: Record<Background, { label: string, value: strin
   ocean:    { label: 'Ocean',     value: 'linear-gradient(135deg, #001a2e 0%, #003d5c 50%, #0a1628 100%)',   preview: '#003d5c' },
   sunset:   { label: 'Sunset',    value: 'linear-gradient(135deg, #1a0a00 0%, #2e1a0a 50%, #1a0f0a 100%)',   preview: '#2e1a0a' },
   forest:   { label: 'Emerald',   value: 'linear-gradient(135deg, #001a1a 0%, #003333 50%, #001a2e 100%)',   preview: '#003333' },
-  // ── BRIGHT BACKGROUNDS ───────────────────────────────────────
   rose:     { label: 'Rose',      value: 'linear-gradient(135deg, #fff0f3 0%, #ffd6e0 50%, #ffb3c6 100%)',   preview: '#ffd6e0' },
   arctic:   { label: 'Arctic',    value: 'linear-gradient(135deg, #e0f7fa 0%, #b2ebf2 50%, #e0f2ff 100%)',   preview: '#b2ebf2' },
   golden:   { label: 'Golden',    value: 'linear-gradient(135deg, #fffde7 0%, #fff3b0 50%, #ffe57a 100%)',   preview: '#fff3b0' },
@@ -162,20 +160,16 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const preset = backgroundPresets[background]
   const bgMain = preset?.value || baseTokens.bgPage
 
-  // When custom background selected, make page transparent so gradient shows through
   const t = background !== 'default'
     ? { ...baseTokens, bgPage: 'transparent' }
     : baseTokens
 
   useEffect(() => {
     document.documentElement.setAttribute('data-fontsize', fontSize)
-
-    // Set CSS variables
     document.documentElement.style.setProperty('--bg-page', t.bgPage)
     document.documentElement.style.setProperty('--text-primary', t.textPrimary)
     document.documentElement.style.setProperty('--bg-main', bgMain)
 
-    // Apply background to html and body
     const appliedBg = background !== 'default' && preset?.value
       ? preset.value
       : baseTokens.bgPage
@@ -183,14 +177,12 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     document.documentElement.style.background = appliedBg
     document.documentElement.style.backgroundAttachment = 'fixed'
     document.documentElement.style.minHeight = '100%'
-
     document.body.style.background = appliedBg
     document.body.style.backgroundAttachment = 'fixed'
     document.body.style.minHeight = '100vh'
     document.body.style.color = t.textPrimary
     document.body.style.margin = '0'
     document.body.style.padding = '0'
-
   }, [theme, fontSize, background, bgMain, t.bgPage, t.textPrimary, preset?.value])
 
   return (
