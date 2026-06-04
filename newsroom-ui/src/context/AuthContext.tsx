@@ -1,4 +1,5 @@
-import { createContext, useContext, useEffect, useState, ReactNode } from "react"
+import { createContext, useContext, useEffect, useState } from 'react'
+import type { ReactNode } from 'react'
 import { supabase } from "../lib/supabase"
 
 type Role = "editor" | "reporter" | "admin"
@@ -35,7 +36,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setRole("reporter")
       }
 
-      // fetch name based on role
       if (data?.role === 'admin') {
         const { data: admin } = await supabase
           .from("admins").select("name").eq("id", userId).maybeSingle()
