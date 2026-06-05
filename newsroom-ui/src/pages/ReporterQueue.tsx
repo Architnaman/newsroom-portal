@@ -6,12 +6,14 @@ import { useTheme } from "../context/ThemeContext"
 import { useDateFormat } from '../context/DateFormatContext'
 import { useCollapse } from "../hooks/useCollapse"
 import SectionCard from "../components/SectionCard"
+import { useResponsive } from "../hooks/useResponsive"
 
 export default function ReporterQueue() {
   const { reporterId } = useAuth()
   const { t } = useTheme()
   const { formatDate } = useDateFormat()
   const { toggle, isCollapsed } = useCollapse('reporter-queue', ['active', 'filed', 'ai-reports'])
+  const { isMobile, isTablet } = useResponsive()
 
   const [stories, setStories] = useState<any[]>([])
   const [assignments, setAssignments] = useState<any[]>([])
@@ -52,14 +54,12 @@ export default function ReporterQueue() {
       override_response: a.override_response
     })))
 
-    // Fetch ALL approved AI reports — visible to all reporters
     const { data: reports } = await supabase
       .from("ai_reports")
       .select("*")
       .eq("status", "approved")
       .order("approved_at", { ascending: false })
     setAiReports(reports || [])
-
     setLoading(false)
   }
 
@@ -139,25 +139,30 @@ export default function ReporterQueue() {
     width: "100%", padding: "10px 14px",
     background: t.bgInput, border: `1px solid ${t.borderInput}`,
     borderRadius: "8px", color: t.textPrimary,
-    fontSize: "13px", outline: "none",
-    boxSizing: "border-box", fontFamily: "inherit", resize: "none" as const,
+    fontSize: isMobile ? "16px" : "13px",
+    outline: "none", boxSizing: "border-box",
+    fontFamily: "inherit", resize: "none" as const,
   }
 
   return (
     <div style={{ minHeight: "100vh", background: t.bgPage, fontFamily: '"Inter", "DM Mono", "Courier New", monospace', color: t.textPrimary }}>
       <Navbar />
-      <main role="main" style={{ padding: "32px 24px", maxWidth: "860px", margin: "0 auto" }}>
+      <main role="main" style={{
+        padding: isMobile ? "16px 12px" : isTablet ? "24px 16px" : "32px 24px",
+        maxWidth: isMobile ? "100%" : "860px",
+        margin: "0 auto"
+      }}>
 
         {/* Header */}
-        <div style={{ marginBottom: "32px" }}>
-          <h1 style={{ color: t.textPrimary, margin: "0 0 6px", fontSize: "22px", fontWeight: "700" }}>My Stories</h1>
+        <div style={{ marginBottom: isMobile ? "20px" : "32px" }}>
+          <h1 style={{ color: t.textPrimary, margin: "0 0 6px", fontSize: isMobile ? "18px" : "22px", fontWeight: "700" }}>My Stories</h1>
           <p style={{ color: t.textMuted, margin: 0, fontSize: "13px" }}>Your active assignments, filed reports and AI-generated reports</p>
         </div>
 
         {loading ? (
           <div style={{ color: t.textMuted, textAlign: "center", padding: "60px", fontSize: "14px" }}>Loading your stories...</div>
         ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: isMobile ? "12px" : "20px" }}>
 
             {/* ACTIVE STORIES */}
             <SectionCard
@@ -167,19 +172,27 @@ export default function ReporterQueue() {
               badge={active.length}
               badgeColor={t.accent}>
               {active.length === 0 ? (
-                <div style={{ color: t.textDisabled, fontSize: "14px", textAlign: "center", padding: "48px", border: `1px dashed ${t.borderCard}`, borderRadius: "10px", background: t.bgPage }}>
+                <div style={{ color: t.textDisabled, fontSize: "14px", textAlign: "center", padding: isMobile ? "32px 16px" : "48px", border: `1px dashed ${t.borderCard}`, borderRadius: "10px", background: t.bgPage }}>
                   No active stories assigned to you
                 </div>
               ) : (
                 <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
                   {active.map(story => (
                     <div key={story.id} style={{
-                      padding: "20px 24px", borderRadius: "10px",
+                      padding: isMobile ? "14px" : "20px 24px",
+                      borderRadius: "10px",
                       border: `1px solid ${story.is_override && story.override_status === "pending" ? t.dangerBorder : t.borderCard}`,
                       background: story.is_override && story.override_status === "pending" ? t.dangerBg : t.bgPage,
                       boxShadow: t.shadowCard
                     }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                      {/* Story header — stack on mobile */}
+                      <div style={{
+                        display: "flex",
+                        flexDirection: isMobile ? "column" : "row",
+                        justifyContent: "space-between",
+                        alignItems: isMobile ? "flex-start" : "flex-start",
+                        gap: isMobile ? "12px" : "0"
+                      }}>
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "10px", flexWrap: "wrap" }}>
                             <span style={{ padding: "3px 10px", borderRadius: "4px", fontSize: "10px", fontWeight: "700", background: `${urgencyColor[story.urgency]}20`, color: urgencyColor[story.urgency], border: `1px solid ${urgencyColor[story.urgency]}40` }}>
@@ -193,8 +206,8 @@ export default function ReporterQueue() {
                               <span style={{ padding: "3px 10px", borderRadius: "4px", fontSize: "10px", fontWeight: "700", background: t.dangerBg, color: t.danger, border: `1px solid ${t.dangerBorder}` }}>OVERRIDE</span>
                             )}
                           </div>
-                          <h3 style={{ color: t.textPrimary, margin: "0 0 10px", fontSize: "16px", fontWeight: "700", lineHeight: 1.4 }}>{story.headline}</h3>
-                          <div style={{ display: "flex", gap: "20px", flexWrap: "wrap" }}>
+                          <h3 style={{ color: t.textPrimary, margin: "0 0 10px", fontSize: isMobile ? "14px" : "16px", fontWeight: "700", lineHeight: 1.4 }}>{story.headline}</h3>
+                          <div style={{ display: "flex", gap: isMobile ? "12px" : "20px", flexWrap: "wrap" }}>
                             <span style={{ color: t.textMuted, fontSize: "12px" }}>Deadline: <span style={{ color: t.textSecondary, fontWeight: "600" }}>{formatDate(story.deadline)}</span></span>
                             <span style={{ color: t.textMuted, fontSize: "12px" }}>Complexity: <span style={{ color: t.textSecondary, fontWeight: "600" }}>{story.complexity}/5</span></span>
                           </div>
@@ -212,9 +225,9 @@ export default function ReporterQueue() {
                               </p>
                               <div style={{ display: "flex", gap: "8px" }}>
                                 <button onClick={() => setOverrideModal({ story, action: "accept" })}
-                                  style={{ flex: 1, padding: "9px", background: t.successBg, border: `1px solid ${t.successBorder}`, borderRadius: "6px", color: t.success, fontSize: "11px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit" }}>ACCEPT</button>
+                                  style={{ flex: 1, padding: "9px", background: t.successBg, border: `1px solid ${t.successBorder}`, borderRadius: "6px", color: t.success, fontSize: "11px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit", minHeight: "44px" }}>ACCEPT</button>
                                 <button onClick={() => setOverrideModal({ story, action: "reject" })}
-                                  style={{ flex: 1, padding: "9px", background: t.dangerBg, border: `1px solid ${t.dangerBorder}`, borderRadius: "6px", color: t.danger, fontSize: "11px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit" }}>REJECT</button>
+                                  style={{ flex: 1, padding: "9px", background: t.dangerBg, border: `1px solid ${t.dangerBorder}`, borderRadius: "6px", color: t.danger, fontSize: "11px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit", minHeight: "44px" }}>REJECT</button>
                               </div>
                             </div>
                           )}
@@ -224,17 +237,26 @@ export default function ReporterQueue() {
                             </div>
                           )}
                         </div>
+
+                        {/* Action buttons — full width on mobile */}
                         {(!story.is_override || story.override_status === "accepted") && (
-                          <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginLeft: "20px", flexShrink: 0 }}>
+                          <div style={{
+                            display: "flex",
+                            flexDirection: isMobile ? "row" : "column",
+                            gap: "8px",
+                            marginLeft: isMobile ? "0" : "20px",
+                            flexShrink: 0,
+                            width: isMobile ? "100%" : "auto"
+                          }}>
                             {story.status === "assigned" && (
                               <button onClick={() => startWorking(story)} disabled={updating === story.id}
-                                style={{ padding: "10px 18px", background: t.warningBg, border: `1px solid ${t.warningBorder}`, borderRadius: "6px", color: t.warning, fontSize: "11px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap", opacity: updating === story.id ? 0.6 : 1 }}>
+                                style={{ padding: "10px 18px", background: t.warningBg, border: `1px solid ${t.warningBorder}`, borderRadius: "6px", color: t.warning, fontSize: "11px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap", opacity: updating === story.id ? 0.6 : 1, flex: isMobile ? 1 : "none", minHeight: "44px" }}>
                                 {updating === story.id ? "..." : "START WORKING"}
                               </button>
                             )}
                             {story.status === "in_progress" && (
                               <button onClick={() => setFileModal(story)}
-                                style={{ padding: "10px 18px", background: "rgba(167,139,250,0.1)", border: "1px solid rgba(167,139,250,0.35)", borderRadius: "6px", color: "#a78bfa", fontSize: "11px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap" }}>
+                                style={{ padding: "10px 18px", background: "rgba(167,139,250,0.1)", border: "1px solid rgba(167,139,250,0.35)", borderRadius: "6px", color: "#a78bfa", fontSize: "11px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap", flex: isMobile ? 1 : "none", minHeight: "44px" }}>
                                 FILE REPORT
                               </button>
                             )}
@@ -258,25 +280,32 @@ export default function ReporterQueue() {
                 <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
                   {filed.map(story => (
                     <div key={story.id} style={{
-                      padding: "16px 20px", borderRadius: "10px",
+                      padding: isMobile ? "12px" : "16px 20px",
+                      borderRadius: "10px",
                       border: `1px solid ${story.status === "published" ? t.successBorder : "rgba(167,139,250,0.25)"}`,
                       background: story.status === "published" ? t.successBg : "rgba(167,139,250,0.06)",
                       boxShadow: t.shadowCard
                     }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                      <div style={{
+                        display: "flex",
+                        flexDirection: isMobile ? "column" : "row",
+                        justifyContent: "space-between",
+                        alignItems: isMobile ? "flex-start" : "flex-start",
+                        gap: isMobile ? "8px" : "0"
+                      }}>
                         <div style={{ flex: 1 }}>
-                          <div style={{ color: story.status === "published" ? t.textPrimary : t.textSecondary, fontSize: "15px", fontWeight: "700", marginBottom: "6px" }}>{story.headline}</div>
+                          <div style={{ color: story.status === "published" ? t.textPrimary : t.textSecondary, fontSize: isMobile ? "13px" : "15px", fontWeight: "700", marginBottom: "6px" }}>{story.headline}</div>
                           {story.filed_file_name && (
                             <div style={{ color: "#a78bfa", fontSize: "11px", marginBottom: "8px", fontWeight: "500" }}>Filed: {story.filed_file_name}</div>
                           )}
                           {story.editor_feedback && story.status === "published" && (
                             <button onClick={() => setFeedbackModal(story)}
-                              style={{ padding: "7px 14px", background: t.warningBg, border: `1px solid ${t.warningBorder}`, borderRadius: "6px", color: t.warning, fontSize: "12px", fontWeight: "600", cursor: "pointer", fontFamily: "inherit" }}>
+                              style={{ padding: "7px 14px", background: t.warningBg, border: `1px solid ${t.warningBorder}`, borderRadius: "6px", color: t.warning, fontSize: "12px", fontWeight: "600", cursor: "pointer", fontFamily: "inherit", minHeight: "44px" }}>
                               Editor left feedback — click to view
                             </button>
                           )}
                         </div>
-                        <span style={{ padding: "4px 12px", borderRadius: "4px", fontSize: "11px", fontWeight: "700", marginLeft: "16px", whiteSpace: "nowrap", background: story.status === "published" ? t.successBg : "rgba(167,139,250,0.15)", color: story.status === "published" ? t.success : "#a78bfa", border: `1px solid ${story.status === "published" ? t.successBorder : "rgba(167,139,250,0.3)"}` }}>
+                        <span style={{ padding: "4px 12px", borderRadius: "4px", fontSize: "11px", fontWeight: "700", marginLeft: isMobile ? "0" : "16px", whiteSpace: "nowrap", background: story.status === "published" ? t.successBg : "rgba(167,139,250,0.15)", color: story.status === "published" ? t.success : "#a78bfa", border: `1px solid ${story.status === "published" ? t.successBorder : "rgba(167,139,250,0.3)"}` }}>
                           {story.status?.toUpperCase()}
                         </span>
                       </div>
@@ -286,7 +315,7 @@ export default function ReporterQueue() {
               </SectionCard>
             )}
 
-            {/* AI REPORTS — visible to ALL reporters */}
+            {/* AI REPORTS */}
             <SectionCard
               title="AMBIENT SCRIBE REPORTS"
               isCollapsed={isCollapsed('ai-reports')}
@@ -294,16 +323,23 @@ export default function ReporterQueue() {
               badge={aiReports.length}
               badgeColor={t.accent}>
               {aiReports.length === 0 ? (
-                <div style={{ color: t.textDisabled, fontSize: "14px", textAlign: "center", padding: "40px", border: `1px dashed ${t.borderCard}`, borderRadius: "10px", background: t.bgPage }}>
+                <div style={{ color: t.textDisabled, fontSize: "14px", textAlign: "center", padding: isMobile ? "24px 12px" : "40px", border: `1px dashed ${t.borderCard}`, borderRadius: "10px", background: t.bgPage }}>
                   No approved AI reports yet — your editor will publish reports here
                 </div>
               ) : (
                 <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
                   {aiReports.map(r => (
-                    <div key={r.id} style={{ padding: "18px 20px", borderRadius: "10px", border: `1px solid ${t.accentBorder}`, background: t.accentBg, boxShadow: t.shadowCard }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "14px" }}>
+                    <div key={r.id} style={{ padding: isMobile ? "14px" : "18px 20px", borderRadius: "10px", border: `1px solid ${t.accentBorder}`, background: t.accentBg, boxShadow: t.shadowCard }}>
+                      <div style={{
+                        display: "flex",
+                        flexDirection: isMobile ? "column" : "row",
+                        justifyContent: "space-between",
+                        alignItems: isMobile ? "flex-start" : "flex-start",
+                        marginBottom: "14px",
+                        gap: isMobile ? "10px" : "0"
+                      }}>
                         <div>
-                          <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "6px" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "6px", flexWrap: "wrap" }}>
                             <div style={{ padding: "4px 12px", background: t.accentBg, border: `1px solid ${t.accentBorder}`, borderRadius: "6px" }}>
                               <span style={{ color: t.accent, fontSize: "10px", fontWeight: "700", letterSpacing: "1px" }}>AMBIENT SCRIBE</span>
                             </div>
@@ -314,20 +350,24 @@ export default function ReporterQueue() {
                             {r.story_ids?.length > 0 && ` | ${r.story_ids.length} stor${r.story_ids.length > 1 ? 'ies' : 'y'} referenced`}
                           </p>
                         </div>
-                        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "10px", width: isMobile ? "100%" : "auto", justifyContent: isMobile ? "space-between" : "flex-end" }}>
                           <div style={{ textAlign: "right" as const }}>
-                            <div style={{ fontSize: "24px", fontWeight: "800", color: getConfidenceColor(r.confidence_score) }}>{r.confidence_score}%</div>
+                            <div style={{ fontSize: isMobile ? "20px" : "24px", fontWeight: "800", color: getConfidenceColor(r.confidence_score) }}>{r.confidence_score}%</div>
                             <div style={{ color: t.textMuted, fontSize: "10px", fontWeight: "600" }}>CONFIDENCE</div>
                           </div>
                           <button onClick={() => setViewReportModal(r)}
-                            style={{ padding: "8px 16px", background: t.accent, border: "none", borderRadius: "6px", color: t.accentText, fontSize: "11px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit" }}>
+                            style={{ padding: "8px 16px", background: t.accent, border: "none", borderRadius: "6px", color: t.accentText, fontSize: "11px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit", minHeight: "44px" }}>
                             READ REPORT
                           </button>
                         </div>
                       </div>
 
-                      {/* Preview 3 sections */}
-                      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "8px" }}>
+                      {/* Preview 3 sections — stack on mobile */}
+                      <div style={{
+                        display: "grid",
+                        gridTemplateColumns: isMobile ? "1fr" : "repeat(3, 1fr)",
+                        gap: "8px"
+                      }}>
                         {[
                           { label: "📝 Story Notes", content: r.story_notes, color: t.accent },
                           { label: "👤 Assignment Notes", content: r.assignment_notes, color: "#a78bfa" },
@@ -352,37 +392,36 @@ export default function ReporterQueue() {
 
       {/* View Full Report Modal */}
       {viewReportModal && (
-        <div style={{ position: "fixed", inset: 0, background: t.overlayBg, display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}
+        <div style={{ position: "fixed", inset: 0, background: t.overlayBg, display: "flex", alignItems: isMobile ? "flex-end" : "center", justifyContent: "center", zIndex: 1000 }}
           onClick={e => { if (e.target === e.currentTarget) setViewReportModal(null) }}>
-          <div style={{ background: t.bgCard, border: `1px solid ${t.accentBorder}`, borderRadius: "14px", width: "100%", maxWidth: "700px", margin: "24px", padding: "28px", boxShadow: t.shadow, maxHeight: "88vh", overflowY: "auto" }}>
+          <div style={{ background: t.bgCard, border: `1px solid ${t.accentBorder}`, borderRadius: isMobile ? "14px 14px 0 0" : "14px", width: "100%", maxWidth: isMobile ? "100%" : "700px", margin: isMobile ? "0" : "24px", padding: isMobile ? "20px 16px" : "28px", boxShadow: t.shadow, maxHeight: isMobile ? "90vh" : "88vh", overflowY: "auto" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
               <div>
                 <div style={{ display: "inline-flex", alignItems: "center", gap: "8px", padding: "5px 12px", background: t.accentBg, border: `1px solid ${t.accentBorder}`, borderRadius: "6px", marginBottom: "8px" }}>
                   <span style={{ color: t.accent, fontSize: "10px", fontWeight: "700", letterSpacing: "1px" }}>AMBIENT SCRIBE REPORT</span>
                 </div>
-                <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
                   <span style={{ padding: "3px 10px", borderRadius: "4px", fontSize: "10px", fontWeight: "700", background: t.successBg, color: t.success, border: `1px solid ${t.successBorder}` }}>✓ APPROVED</span>
                   <span style={{ color: t.textMuted, fontSize: "12px" }}>Published: {formatDate(viewReportModal.approved_at?.split('T')[0])}</span>
                   <div style={{ fontSize: "18px", fontWeight: "800", color: getConfidenceColor(viewReportModal.confidence_score) }}>{viewReportModal.confidence_score}% confidence</div>
                 </div>
               </div>
-              <button onClick={() => setViewReportModal(null)} style={{ background: "none", border: "none", color: t.textMuted, fontSize: "22px", cursor: "pointer" }}>x</button>
+              <button onClick={() => setViewReportModal(null)} style={{ background: "none", border: "none", color: t.textMuted, fontSize: "22px", cursor: "pointer", minWidth: "44px", minHeight: "44px" }}>x</button>
             </div>
 
-            {/* Full report sections */}
             {[
               { label: "📝 Notes about the Story", content: viewReportModal.story_notes, color: t.accent, border: t.accentBorder, bg: t.accentBg },
               { label: "👤 Notes about Assignment to Reporter", content: viewReportModal.assignment_notes, color: "#a78bfa", border: "rgba(167,139,250,0.3)", bg: "rgba(167,139,250,0.08)" },
               { label: "📅 Notes about Reporter Rostering", content: viewReportModal.rostering_notes, color: t.success, border: t.successBorder, bg: t.successBg },
             ].map(section => (
-              <div key={section.label} style={{ marginBottom: "16px", padding: "18px", borderRadius: "8px", border: `1px solid ${section.border}`, background: section.bg }}>
+              <div key={section.label} style={{ marginBottom: "16px", padding: isMobile ? "14px" : "18px", borderRadius: "8px", border: `1px solid ${section.border}`, background: section.bg }}>
                 <h3 style={{ color: section.color, margin: "0 0 12px", fontSize: "13px", fontWeight: "700", letterSpacing: "0.5px" }}>{section.label}</h3>
                 <p style={{ color: t.textPrimary, fontSize: "13px", margin: 0, lineHeight: 1.8 }}>{section.content}</p>
               </div>
             ))}
 
             <button onClick={() => setViewReportModal(null)}
-              style={{ width: "100%", padding: "13px", background: t.accent, border: "none", borderRadius: "8px", color: t.accentText, fontSize: "13px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit" }}>
+              style={{ width: "100%", padding: "13px", background: t.accent, border: "none", borderRadius: "8px", color: t.accentText, fontSize: "13px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit", minHeight: "48px" }}>
               CLOSE
             </button>
           </div>
@@ -392,14 +431,14 @@ export default function ReporterQueue() {
       {/* Override Modal */}
       {overrideModal && (
         <div role="dialog" aria-modal="true"
-          style={{ position: "fixed", inset: 0, background: t.overlayBg, display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}
+          style={{ position: "fixed", inset: 0, background: t.overlayBg, display: "flex", alignItems: isMobile ? "flex-end" : "center", justifyContent: "center", zIndex: 1000 }}
           onClick={e => { if (e.target === e.currentTarget) { setOverrideModal(null); setOverrideResponse("") } }}>
-          <div style={{ background: t.bgCard, border: `1px solid ${overrideModal.action === "accept" ? t.successBorder : t.dangerBorder}`, borderRadius: "12px", width: "100%", maxWidth: "460px", margin: "24px", padding: "28px", fontFamily: "inherit", boxShadow: t.shadow }}>
+          <div style={{ background: t.bgCard, border: `1px solid ${overrideModal.action === "accept" ? t.successBorder : t.dangerBorder}`, borderRadius: isMobile ? "14px 14px 0 0" : "12px", width: "100%", maxWidth: isMobile ? "100%" : "460px", margin: isMobile ? "0" : "24px", padding: isMobile ? "20px 16px" : "28px", fontFamily: "inherit", boxShadow: t.shadow }}>
             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "8px", alignItems: "center" }}>
-              <h2 style={{ color: t.textPrimary, margin: 0, fontSize: "18px", fontWeight: "700" }}>
+              <h2 style={{ color: t.textPrimary, margin: 0, fontSize: isMobile ? "16px" : "18px", fontWeight: "700" }}>
                 {overrideModal.action === "accept" ? "Accept Override Assignment" : "Reject Override Assignment"}
               </h2>
-              <button onClick={() => { setOverrideModal(null); setOverrideResponse("") }} style={{ background: "none", border: "none", color: t.textMuted, fontSize: "22px", cursor: "pointer" }}>x</button>
+              <button onClick={() => { setOverrideModal(null); setOverrideResponse("") }} style={{ background: "none", border: "none", color: t.textMuted, fontSize: "22px", cursor: "pointer", minWidth: "44px", minHeight: "44px" }}>x</button>
             </div>
             <p style={{ color: t.textMuted, fontSize: "13px", margin: "0 0 4px" }}>Story: <span style={{ color: t.textPrimary, fontWeight: "600" }}>{overrideModal.story.headline}</span></p>
             <p style={{ color: t.textMuted, fontSize: "13px", margin: "0 0 16px" }}>Editor reason: <span style={{ color: t.warning, fontWeight: "600" }}>{overrideModal.story.override_reason}</span></p>
@@ -415,9 +454,9 @@ export default function ReporterQueue() {
                 style={inputStyle} />
             </div>
             <div style={{ display: "flex", gap: "8px" }}>
-              <button onClick={() => { setOverrideModal(null); setOverrideResponse("") }} style={{ flex: 1, padding: "12px", background: "transparent", border: `1px solid ${t.borderCard}`, borderRadius: "8px", color: t.textMuted, fontSize: "13px", cursor: "pointer", fontFamily: "inherit" }}>CANCEL</button>
+              <button onClick={() => { setOverrideModal(null); setOverrideResponse("") }} style={{ flex: 1, padding: "12px", background: "transparent", border: `1px solid ${t.borderCard}`, borderRadius: "8px", color: t.textMuted, fontSize: "13px", cursor: "pointer", fontFamily: "inherit", minHeight: "48px" }}>CANCEL</button>
               <button onClick={() => handleOverride(overrideModal.story, overrideModal.action)} disabled={!overrideResponse.trim() || overrideLoading}
-                style={{ flex: 1, padding: "12px", background: overrideResponse.trim() ? (overrideModal.action === "accept" ? t.successBg : t.dangerBg) : t.bgInput, border: `1px solid ${overrideResponse.trim() ? (overrideModal.action === "accept" ? t.successBorder : t.dangerBorder) : t.borderCard}`, borderRadius: "8px", color: overrideResponse.trim() ? (overrideModal.action === "accept" ? t.success : t.danger) : t.textDisabled, fontSize: "13px", fontWeight: "700", cursor: overrideResponse.trim() ? "pointer" : "not-allowed", fontFamily: "inherit", opacity: overrideLoading ? 0.6 : 1 }}>
+                style={{ flex: 1, padding: "12px", background: overrideResponse.trim() ? (overrideModal.action === "accept" ? t.successBg : t.dangerBg) : t.bgInput, border: `1px solid ${overrideResponse.trim() ? (overrideModal.action === "accept" ? t.successBorder : t.dangerBorder) : t.borderCard}`, borderRadius: "8px", color: overrideResponse.trim() ? (overrideModal.action === "accept" ? t.success : t.danger) : t.textDisabled, fontSize: "13px", fontWeight: "700", cursor: overrideResponse.trim() ? "pointer" : "not-allowed", fontFamily: "inherit", opacity: overrideLoading ? 0.6 : 1, minHeight: "48px" }}>
                 {overrideLoading ? "PROCESSING..." : overrideModal.action === "accept" ? "CONFIRM ACCEPT" : "CONFIRM REJECT"}
               </button>
             </div>
@@ -428,17 +467,17 @@ export default function ReporterQueue() {
       {/* File Upload Modal */}
       {fileModal && (
         <div role="dialog" aria-modal="true"
-          style={{ position: "fixed", inset: 0, background: t.overlayBg, display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}
+          style={{ position: "fixed", inset: 0, background: t.overlayBg, display: "flex", alignItems: isMobile ? "flex-end" : "center", justifyContent: "center", zIndex: 1000 }}
           onClick={e => { if (e.target === e.currentTarget) { setFileModal(null); setSelectedFile(null) } }}>
-          <div style={{ background: t.bgCard, border: "1px solid rgba(167,139,250,0.35)", borderRadius: "12px", width: "100%", maxWidth: "460px", margin: "24px", padding: "28px", fontFamily: "inherit", boxShadow: t.shadow }}>
+          <div style={{ background: t.bgCard, border: "1px solid rgba(167,139,250,0.35)", borderRadius: isMobile ? "14px 14px 0 0" : "12px", width: "100%", maxWidth: isMobile ? "100%" : "460px", margin: isMobile ? "0" : "24px", padding: isMobile ? "20px 16px" : "28px", fontFamily: "inherit", boxShadow: t.shadow }}>
             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "8px", alignItems: "center" }}>
-              <h2 style={{ color: t.textPrimary, margin: 0, fontSize: "18px", fontWeight: "700" }}>File Report</h2>
-              <button onClick={() => { setFileModal(null); setSelectedFile(null) }} style={{ background: "none", border: "none", color: t.textMuted, fontSize: "22px", cursor: "pointer" }}>x</button>
+              <h2 style={{ color: t.textPrimary, margin: 0, fontSize: isMobile ? "16px" : "18px", fontWeight: "700" }}>File Report</h2>
+              <button onClick={() => { setFileModal(null); setSelectedFile(null) }} style={{ background: "none", border: "none", color: t.textMuted, fontSize: "22px", cursor: "pointer", minWidth: "44px", minHeight: "44px" }}>x</button>
             </div>
             <p style={{ color: t.textMuted, fontSize: "13px", margin: "0 0 20px" }}>Upload Word document for: <span style={{ color: t.textPrimary, fontWeight: "600" }}>{fileModal.headline}</span></p>
             <div role="button" tabIndex={0} onClick={() => document.getElementById("file-input")?.click()}
               onKeyDown={e => e.key === "Enter" && document.getElementById("file-input")?.click()}
-              style={{ border: `2px dashed ${selectedFile ? "rgba(167,139,250,0.6)" : t.borderCard}`, borderRadius: "10px", padding: "32px 20px", textAlign: "center", cursor: "pointer", marginBottom: "20px", background: selectedFile ? "rgba(167,139,250,0.06)" : t.bgInput, transition: "all 0.15s" }}>
+              style={{ border: `2px dashed ${selectedFile ? "rgba(167,139,250,0.6)" : t.borderCard}`, borderRadius: "10px", padding: isMobile ? "24px 16px" : "32px 20px", textAlign: "center", cursor: "pointer", marginBottom: "20px", background: selectedFile ? "rgba(167,139,250,0.06)" : t.bgInput, transition: "all 0.15s" }}>
               {selectedFile ? (
                 <div>
                   <div style={{ fontSize: "40px", marginBottom: "10px" }}>📘</div>
@@ -455,9 +494,9 @@ export default function ReporterQueue() {
               <input id="file-input" type="file" accept=".doc,.docx" style={{ display: "none" }} onChange={e => setSelectedFile(e.target.files?.[0] || null)} />
             </div>
             <div style={{ display: "flex", gap: "8px" }}>
-              <button onClick={() => { setFileModal(null); setSelectedFile(null) }} style={{ flex: 1, padding: "12px", background: "transparent", border: `1px solid ${t.borderCard}`, borderRadius: "8px", color: t.textMuted, fontSize: "13px", cursor: "pointer", fontFamily: "inherit" }}>CANCEL</button>
+              <button onClick={() => { setFileModal(null); setSelectedFile(null) }} style={{ flex: 1, padding: "12px", background: "transparent", border: `1px solid ${t.borderCard}`, borderRadius: "8px", color: t.textMuted, fontSize: "13px", cursor: "pointer", fontFamily: "inherit", minHeight: "48px" }}>CANCEL</button>
               <button onClick={uploadAndFile} disabled={!selectedFile || uploadingId === fileModal.id}
-                style={{ flex: 1, padding: "12px", background: selectedFile ? "rgba(167,139,250,0.15)" : t.bgInput, border: `1px solid ${selectedFile ? "rgba(167,139,250,0.4)" : t.borderCard}`, borderRadius: "8px", color: selectedFile ? "#a78bfa" : t.textDisabled, fontSize: "13px", fontWeight: "700", cursor: selectedFile ? "pointer" : "not-allowed", fontFamily: "inherit", opacity: uploadingId === fileModal.id ? 0.6 : 1 }}>
+                style={{ flex: 1, padding: "12px", background: selectedFile ? "rgba(167,139,250,0.15)" : t.bgInput, border: `1px solid ${selectedFile ? "rgba(167,139,250,0.4)" : t.borderCard}`, borderRadius: "8px", color: selectedFile ? "#a78bfa" : t.textDisabled, fontSize: "13px", fontWeight: "700", cursor: selectedFile ? "pointer" : "not-allowed", fontFamily: "inherit", opacity: uploadingId === fileModal.id ? 0.6 : 1, minHeight: "48px" }}>
                 {uploadingId === fileModal.id ? "UPLOADING..." : "SUBMIT REPORT"}
               </button>
             </div>
@@ -468,12 +507,12 @@ export default function ReporterQueue() {
       {/* Feedback Modal */}
       {feedbackModal && (
         <div role="dialog" aria-modal="true"
-          style={{ position: "fixed", inset: 0, background: t.overlayBg, display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}
+          style={{ position: "fixed", inset: 0, background: t.overlayBg, display: "flex", alignItems: isMobile ? "flex-end" : "center", justifyContent: "center", zIndex: 1000 }}
           onClick={e => { if (e.target === e.currentTarget) setFeedbackModal(null) }}>
-          <div style={{ background: t.bgCard, border: `1px solid ${t.warningBorder}`, borderRadius: "12px", width: "100%", maxWidth: "460px", margin: "24px", padding: "28px", fontFamily: "inherit", boxShadow: t.shadow }}>
+          <div style={{ background: t.bgCard, border: `1px solid ${t.warningBorder}`, borderRadius: isMobile ? "14px 14px 0 0" : "12px", width: "100%", maxWidth: isMobile ? "100%" : "460px", margin: isMobile ? "0" : "24px", padding: isMobile ? "20px 16px" : "28px", fontFamily: "inherit", boxShadow: t.shadow }}>
             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "16px", alignItems: "center" }}>
-              <h2 style={{ color: t.textPrimary, margin: 0, fontSize: "18px", fontWeight: "700" }}>Editor Feedback</h2>
-              <button onClick={() => setFeedbackModal(null)} style={{ background: "none", border: "none", color: t.textMuted, fontSize: "22px", cursor: "pointer" }}>x</button>
+              <h2 style={{ color: t.textPrimary, margin: 0, fontSize: isMobile ? "16px" : "18px", fontWeight: "700" }}>Editor Feedback</h2>
+              <button onClick={() => setFeedbackModal(null)} style={{ background: "none", border: "none", color: t.textMuted, fontSize: "22px", cursor: "pointer", minWidth: "44px", minHeight: "44px" }}>x</button>
             </div>
             <p style={{ color: t.textMuted, fontSize: "13px", margin: "0 0 16px" }}>For: <span style={{ color: t.textPrimary, fontWeight: "600" }}>{feedbackModal.headline}</span></p>
             <div style={{ padding: "16px", background: t.warningBg, border: `1px solid ${t.warningBorder}`, borderRadius: "8px", marginBottom: "14px" }}>
@@ -486,7 +525,7 @@ export default function ReporterQueue() {
             <div style={{ padding: "12px 16px", background: t.successBg, border: `1px solid ${t.successBorder}`, borderRadius: "8px", marginBottom: "16px" }}>
               <p style={{ color: t.success, fontSize: "12px", fontWeight: "600", margin: 0 }}>Your report has been published!</p>
             </div>
-            <button onClick={() => setFeedbackModal(null)} style={{ width: "100%", padding: "12px", background: "transparent", border: `1px solid ${t.borderCard}`, borderRadius: "8px", color: t.textMuted, fontSize: "13px", cursor: "pointer", fontFamily: "inherit" }}>CLOSE</button>
+            <button onClick={() => setFeedbackModal(null)} style={{ width: "100%", padding: "12px", background: "transparent", border: `1px solid ${t.borderCard}`, borderRadius: "8px", color: t.textMuted, fontSize: "13px", cursor: "pointer", fontFamily: "inherit", minHeight: "48px" }}>CLOSE</button>
           </div>
         </div>
       )}
