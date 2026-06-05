@@ -404,10 +404,23 @@ CRITICAL JSON RULES:
                 {role === "editor" ? "Editor Assistant" : "Reporter Assistant"}
               </div>
             </div>
-            <button onClick={() => setOpen(false)} aria-label="Close chat"
-              style={{ background: t.bgInput, border: `1px solid ${t.borderCard}`, color: t.textMuted, fontSize: "16px", cursor: "pointer", borderRadius: "6px", width: "32px", height: "32px", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "inherit" }}>
-              X
-            </button>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <button
+                onClick={() => setMessages([{
+                  role: "assistant", text: role === "editor"
+                    ? "Hi Editor! I can help you create stories, assign reporters, approve leaves and publish stories. What would you like to do?"
+                    : "Hi Reporter! I can help you start working on stories, file leaves, check your stories and update availability. What would you like to do?"
+                }])}
+                aria-label="Clear chat"
+                title="Clear chat"
+                style={{ background: t.dangerBg, border: `1px solid ${t.dangerBorder}`, color: t.danger, fontSize: "11px", fontWeight: "700", cursor: "pointer", borderRadius: "6px", padding: "4px 10px", height: "32px", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "inherit", letterSpacing: "0.5px" }}>
+                🗑️ CLEAR
+              </button>
+              <button onClick={() => setOpen(false)} aria-label="Close chat"
+                style={{ background: t.bgInput, border: `1px solid ${t.borderCard}`, color: t.textMuted, fontSize: "16px", cursor: "pointer", borderRadius: "6px", width: "32px", height: "32px", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "inherit" }}>
+                X
+              </button>
+            </div>
           </div>
 
           {/* Messages */}
