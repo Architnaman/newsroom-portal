@@ -1,9 +1,11 @@
 import { useState } from "react"
 import { supabase } from "../lib/supabase"
 import { useTheme } from "../context/ThemeContext"
+import { useResponsive } from "../hooks/useResponsive"
 
 export default function Login() {
   const { t, theme, toggleTheme } = useTheme()
+  const { isMobile, isTablet } = useResponsive()
   const [isLogin, setIsLogin] = useState(true)
   const [name, setName] = useState("")
   const [email, setEmail] = useState("")
@@ -40,12 +42,12 @@ export default function Login() {
 
   const inputStyle: React.CSSProperties = {
     width: "100%",
-    padding: "13px 16px",
+    padding: isMobile ? "12px 14px" : "13px 16px",
     background: t.bgInput,
     border: `1px solid ${t.borderInput}`,
     borderRadius: "8px",
     color: t.textPrimary,
-    fontSize: "14px",
+    fontSize: isMobile ? "16px" : "14px", // 16px prevents iOS zoom
     outline: "none",
     boxSizing: "border-box",
     fontFamily: "inherit",
@@ -60,7 +62,7 @@ export default function Login() {
       alignItems: "center",
       justifyContent: "center",
       fontFamily: '"Inter", "DM Mono", "Courier New", monospace',
-      padding: "24px",
+      padding: isMobile ? "16px" : "24px",
     }}>
       {/* Theme toggle top right */}
       <button
@@ -73,28 +75,37 @@ export default function Login() {
           background: t.bgCard, color: t.textSecondary,
           fontSize: '16px', cursor: 'pointer',
           fontFamily: 'inherit',
+          zIndex: 100,
         }}>
         {theme === 'dark' ? '☀' : '☾'}
       </button>
 
       <div style={{
         width: "100%",
-        maxWidth: "460px",
-        padding: "48px 40px",
+        maxWidth: isMobile ? "100%" : isTablet ? "420px" : "460px",
+        padding: isMobile ? "28px 18px" : "48px 40px",
         border: `1px solid ${t.borderCard}`,
-        borderRadius: "12px",
+        borderRadius: isMobile ? "12px" : "12px",
         background: t.bgCard,
         boxShadow: t.shadow,
       }}>
         {/* Logo */}
-        <div style={{ textAlign: "center", marginBottom: "32px" }}>
+        <div style={{ textAlign: "center", marginBottom: isMobile ? "24px" : "32px" }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', marginBottom: '8px' }}>
             <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: t.accent }} />
-            <h1 style={{ color: t.accent, fontSize: "28px", fontWeight: "800", margin: 0, letterSpacing: "3px" }}>
+            <h1 style={{
+              color: t.accent,
+              fontSize: isMobile ? "20px" : "28px",
+              fontWeight: "800", margin: 0, letterSpacing: "3px"
+            }}>
               NEWSROOM OS
             </h1>
           </div>
-          <h2 style={{ color: t.textPrimary, fontSize: "18px", fontWeight: "600", margin: "0 0 4px" }}>
+          <h2 style={{
+            color: t.textPrimary,
+            fontSize: isMobile ? "15px" : "18px",
+            fontWeight: "600", margin: "0 0 4px"
+          }}>
             {isLogin ? "Welcome back" : "Create your account"}
           </h2>
           <p style={{ color: t.textMuted, fontSize: "13px", margin: 0 }}>
@@ -103,7 +114,7 @@ export default function Login() {
         </div>
 
         <form onSubmit={handleAuth} noValidate>
-          <div style={{ display: "flex", flexDirection: "column", gap: "18px" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: isMobile ? "14px" : "18px" }}>
 
             {!isLogin && (
               <div>
@@ -183,14 +194,17 @@ export default function Login() {
                       aria-pressed={role === r}
                       onClick={() => setRole(r)}
                       style={{
-                        flex: 1, padding: "11px",
+                        flex: 1,
+                        padding: isMobile ? "12px" : "11px",
                         border: `2px solid ${role === r ? t.accent : t.borderInput}`,
                         borderRadius: "8px",
                         background: role === r ? t.accentBg : 'transparent',
                         color: role === r ? t.accent : t.textMuted,
-                        fontSize: "12px", letterSpacing: "1px", fontWeight: role === r ? '700' : '400',
+                        fontSize: "12px", letterSpacing: "1px",
+                        fontWeight: role === r ? '700' : '400',
                         cursor: "pointer", fontFamily: "inherit",
                         transition: 'all 0.15s',
+                        minHeight: "44px",
                       }}>
                       {r.toUpperCase()}
                     </button>
@@ -221,7 +235,8 @@ export default function Login() {
               disabled={loading}
               aria-busy={loading}
               style={{
-                width: "100%", padding: "14px",
+                width: "100%",
+                padding: isMobile ? "14px" : "14px",
                 background: loading ? t.textMuted : t.accent,
                 border: "none", borderRadius: "8px",
                 color: t.accentText,
@@ -230,6 +245,7 @@ export default function Login() {
                 fontFamily: "inherit",
                 transition: 'all 0.15s',
                 marginTop: "4px",
+                minHeight: "48px",
               }}>
               {loading ? "PLEASE WAIT..." : isLogin ? "SIGN IN" : "CREATE ACCOUNT"}
             </button>
@@ -245,12 +261,12 @@ export default function Login() {
               cursor: "pointer", fontFamily: "inherit",
               fontWeight: "500", textDecoration: "underline",
               textUnderlineOffset: "3px",
+              minHeight: "44px",
             }}>
             {isLogin ? "Need an account? Create one" : "Already have an account? Sign in"}
           </button>
         </div>
 
-        {/* WCAG info note */}
         <p style={{ color: t.textDisabled, fontSize: "11px", textAlign: "center", marginTop: "16px", lineHeight: 1.5 }}>
           This portal meets WCAG 2.1 AA accessibility standards.
           Use Tab to navigate, Enter to activate.
@@ -259,6 +275,3 @@ export default function Login() {
     </div>
   )
 }
-
-
-
