@@ -6,6 +6,7 @@ import { useTheme } from '../context/ThemeContext'
 import { useDateFormat } from '../context/DateFormatContext'
 import { useCollapse } from '../hooks/useCollapse'
 import SectionCard from '../components/SectionCard'
+import { useResponsive } from '../hooks/useResponsive'
 
 export default function EditorDashboard() {
   const { t } = useTheme()
@@ -13,6 +14,7 @@ export default function EditorDashboard() {
   const { toggle, isCollapsed } = useCollapse('editor-dashboard', [
     'stats', 'filing-requests', 'override-responses', 'stories', 'leave-alerts'
   ])
+  const { isMobile, isTablet } = useResponsive()
 
   const [stories, setStories] = useState<any[]>([])
   const [alerts, setAlerts] = useState<any[]>([])
@@ -48,26 +50,24 @@ export default function EditorDashboard() {
   }
 
   async function load() {
-    await checkAndResetWeeklyLoad()  // ADD THIS LINE
-  setLoading(true)
-  // ... rest of load function
-    async function checkAndResetWeeklyLoad() {
-  const lastReset = localStorage.getItem('nr_last_week_reset')
-  const currentWeekStart = getCurrentWeekStart()
+    await checkAndResetWeeklyLoad()
+    setLoading(true)
 
-  // If we haven't reset this week yet, do it now
-  if (lastReset !== currentWeekStart) {
-    await supabase.rpc('reset_weekly_reporter_load')
-    localStorage.setItem('nr_last_week_reset', currentWeekStart)
-    console.log('Weekly load reset for week:', currentWeekStart)
-  }
-}
+    async function checkAndResetWeeklyLoad() {
+      const lastReset = localStorage.getItem('nr_last_week_reset')
+      const currentWeekStart = getCurrentWeekStart()
+      if (lastReset !== currentWeekStart) {
+        await supabase.rpc('reset_weekly_reporter_load')
+        localStorage.setItem('nr_last_week_reset', currentWeekStart)
+        console.log('Weekly load reset for week:', currentWeekStart)
+      }
+    }
+
     setLoading(true)
     const weekStart = getCurrentWeekStart()
     const weekEnd = getCurrentWeekEnd()
 
     const { data: storiesData } = await supabase.from('stories').select('*')
-      .gte('deadline', weekStart).lte('deadline', weekEnd)
       .order('created_at', { ascending: false })
 
     const { data: assignments } = await supabase.from('assignments')
@@ -222,8 +222,8 @@ export default function EditorDashboard() {
     width: '100%', padding: '10px 14px',
     background: t.bgInput, border: `1px solid ${t.borderInput}`,
     borderRadius: '8px', color: t.textPrimary,
-    fontSize: '14px', outline: 'none',
-    boxSizing: 'border-box', fontFamily: 'inherit',
+    fontSize: isMobile ? '16px' : '14px',
+    outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit',
   }
 
   const weekStart = getCurrentWeekStart()
@@ -232,36 +232,44 @@ export default function EditorDashboard() {
   return (
     <div style={{ minHeight: '100vh', background: t.bgPage, fontFamily: '"Inter", "DM Mono", sans-serif', color: t.textPrimary }}>
       <Navbar />
-      <main role="main" style={{ padding: '32px 24px', maxWidth: '1280px', margin: '0 auto' }}>
+      <main role="main" style={{
+        padding: isMobile ? '14px 12px' : isTablet ? '24px 16px' : '32px 24px',
+        maxWidth: isMobile ? '100%' : '1280px',
+        margin: '0 auto'
+      }}>
 
         {/* Week indicator */}
-        <div style={{ marginBottom: '24px', padding: '10px 16px', background: t.accentBg, border: `1px solid ${t.accentBorder}`, borderRadius: '8px', display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
-          <span style={{ color: t.accent, fontSize: '13px', fontWeight: '600' }}>
+        <div style={{ marginBottom: isMobile ? '14px' : '24px', padding: '10px 16px', background: t.accentBg, border: `1px solid ${t.accentBorder}`, borderRadius: '8px', display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+          <span style={{ color: t.accent, fontSize: isMobile ? '11px' : '13px', fontWeight: '600' }}>
             CURRENT WEEK: {formatDate(weekStart)} to {formatDate(weekEnd)}
           </span>
         </div>
 
-        {/* Stats — collapsible */}
+        {/* Stats */}
         <SectionCard
           title="THIS WEEK OVERVIEW"
           isCollapsed={isCollapsed('stats')}
           onToggle={() => toggle('stats')}
           style={{ marginBottom: '20px' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '16px' }}>
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)',
+            gap: isMobile ? '10px' : '16px'
+          }}>
             {stats.map(s => (
               <div key={s.label} style={{
-                padding: '20px', borderRadius: '10px',
+                padding: isMobile ? '14px' : '20px', borderRadius: '10px',
                 background: t.bgPage, border: `1px solid ${t.borderCard}`,
                 display: 'flex', flexDirection: 'column', gap: '8px'
               }}>
-                <div style={{ color: s.color, fontSize: '36px', fontWeight: '800', lineHeight: 1 }}>{s.value}</div>
-                <div style={{ color: t.textSecondary, fontSize: '12px', fontWeight: '600', letterSpacing: '0.5px' }}>{s.label.toUpperCase()}</div>
+                <div style={{ color: s.color, fontSize: isMobile ? '28px' : '36px', fontWeight: '800', lineHeight: 1 }}>{s.value}</div>
+                <div style={{ color: t.textSecondary, fontSize: isMobile ? '10px' : '12px', fontWeight: '600', letterSpacing: '0.5px' }}>{s.label.toUpperCase()}</div>
               </div>
             ))}
           </div>
         </SectionCard>
 
-        {/* Filing Requests — collapsible */}
+        {/* Filing Requests */}
         {filingRequests.length > 0 && (
           <SectionCard
             title="LEAVE FILING REQUESTS"
@@ -273,22 +281,25 @@ export default function EditorDashboard() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               {filingRequests.map(req => (
                 <div key={req.id} style={{
-                  padding: '14px 16px', borderRadius: '8px',
+                  padding: isMobile ? '12px' : '14px 16px', borderRadius: '8px',
                   border: `1px solid ${t.warningBorder}`, background: t.warningBg,
-                  display: 'flex', justifyContent: 'space-between',
-                  alignItems: 'center', flexWrap: 'wrap', gap: '8px'
+                  display: 'flex',
+                  flexDirection: isMobile ? 'column' : 'row',
+                  justifyContent: 'space-between',
+                  alignItems: isMobile ? 'flex-start' : 'center',
+                  gap: '8px'
                 }}>
                   <div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px', flexWrap: 'wrap' }}>
                       <span style={{ color: t.textPrimary, fontSize: '14px', fontWeight: '600' }}>{req.reporter_name}</span>
                       <span style={{ padding: '2px 8px', borderRadius: '4px', fontSize: '10px', background: t.accentBg, color: t.accent, fontWeight: '600' }}>{req.leave_type?.toUpperCase()}</span>
                       <span style={{ color: t.textSecondary, fontSize: '13px', fontWeight: '500' }}>{formatDate(req.requested_date)}</span>
                     </div>
                     <p style={{ color: t.textMuted, fontSize: '12px', margin: 0 }}>Reason: {req.reason}</p>
                   </div>
-                  <div style={{ display: 'flex', gap: '8px' }}>
-                    <button onClick={() => approveFilingRequest(req)} style={{ padding: '8px 16px', background: t.successBg, border: `1px solid ${t.successBorder}`, borderRadius: '6px', color: t.success, fontSize: '11px', fontWeight: '600', cursor: 'pointer', fontFamily: 'inherit' }}>APPROVE & FILE</button>
-                    <button onClick={() => setFilingRejectModal(req)} style={{ padding: '8px 16px', background: t.dangerBg, border: `1px solid ${t.dangerBorder}`, borderRadius: '6px', color: t.danger, fontSize: '11px', fontWeight: '600', cursor: 'pointer', fontFamily: 'inherit' }}>REJECT</button>
+                  <div style={{ display: 'flex', gap: '8px', width: isMobile ? '100%' : 'auto' }}>
+                    <button onClick={() => approveFilingRequest(req)} style={{ flex: isMobile ? 1 : 'none', padding: '8px 16px', background: t.successBg, border: `1px solid ${t.successBorder}`, borderRadius: '6px', color: t.success, fontSize: '11px', fontWeight: '600', cursor: 'pointer', fontFamily: 'inherit', minHeight: '44px' }}>APPROVE & FILE</button>
+                    <button onClick={() => setFilingRejectModal(req)} style={{ flex: isMobile ? 1 : 'none', padding: '8px 16px', background: t.dangerBg, border: `1px solid ${t.dangerBorder}`, borderRadius: '6px', color: t.danger, fontSize: '11px', fontWeight: '600', cursor: 'pointer', fontFamily: 'inherit', minHeight: '44px' }}>REJECT</button>
                   </div>
                 </div>
               ))}
@@ -296,7 +307,7 @@ export default function EditorDashboard() {
           </SectionCard>
         )}
 
-        {/* Override Responses — collapsible */}
+        {/* Override Responses */}
         {overrideResponses.length > 0 && (
           <SectionCard
             title="OVERRIDE RESPONSES"
@@ -308,10 +319,14 @@ export default function EditorDashboard() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               {overrideResponses.map(o => (
                 <div key={o.id} style={{
-                  padding: '14px 16px', borderRadius: '8px',
+                  padding: isMobile ? '12px' : '14px 16px', borderRadius: '8px',
                   border: `1px solid ${o.override_status === 'accepted' ? t.successBorder : t.dangerBorder}`,
                   background: o.override_status === 'accepted' ? t.successBg : t.dangerBg,
-                  display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px'
+                  display: 'flex',
+                  flexDirection: isMobile ? 'column' : 'row',
+                  justifyContent: 'space-between',
+                  alignItems: isMobile ? 'flex-start' : 'center',
+                  gap: '8px'
                 }}>
                   <div style={{ flex: 1 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px', flexWrap: 'wrap' }}>
@@ -325,7 +340,7 @@ export default function EditorDashboard() {
                       "{o.override_response}"
                     </div>
                   </div>
-                  <button onClick={() => setOverrideDetailModal(o)} style={{ padding: '7px 14px', background: 'transparent', border: `1px solid ${t.borderCard}`, borderRadius: '6px', color: t.textMuted, fontSize: '11px', cursor: 'pointer', fontFamily: 'inherit' }}>VIEW DETAILS</button>
+                  <button onClick={() => setOverrideDetailModal(o)} style={{ padding: '7px 14px', background: 'transparent', border: `1px solid ${t.borderCard}`, borderRadius: '6px', color: t.textMuted, fontSize: '11px', cursor: 'pointer', fontFamily: 'inherit', minHeight: '44px', width: isMobile ? '100%' : 'auto' }}>VIEW DETAILS</button>
                 </div>
               ))}
             </div>
@@ -333,9 +348,13 @@ export default function EditorDashboard() {
         )}
 
         {/* Main grid — Stories + Leave Alerts */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: '20px' }}>
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: isMobile ? '1fr' : isTablet ? '1fr' : '1fr 340px',
+          gap: '20px'
+        }}>
 
-          {/* Stories — collapsible */}
+          {/* Stories */}
           <SectionCard
             title="THIS WEEK STORIES"
             isCollapsed={isCollapsed('stories')}
@@ -343,7 +362,7 @@ export default function EditorDashboard() {
             badge={stories.length}
             badgeColor={t.accent}>
             <div style={{ marginBottom: '16px', display: 'flex', justifyContent: 'flex-end' }}>
-              <button onClick={() => setShowCreate(true)} style={{ padding: '9px 20px', background: t.accent, border: 'none', borderRadius: '8px', color: t.accentText, fontSize: '12px', fontWeight: '700', letterSpacing: '0.5px', cursor: 'pointer', fontFamily: 'inherit' }}>
+              <button onClick={() => setShowCreate(true)} style={{ padding: '9px 20px', background: t.accent, border: 'none', borderRadius: '8px', color: t.accentText, fontSize: '12px', fontWeight: '700', letterSpacing: '0.5px', cursor: 'pointer', fontFamily: 'inherit', minHeight: '44px' }}>
                 + NEW STORY
               </button>
             </div>
@@ -352,7 +371,15 @@ export default function EditorDashboard() {
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                 {stories.map(story => (
-                  <div key={story.id} style={{ padding: '16px', borderRadius: '8px', border: `1px solid ${t.borderCard}`, background: t.bgPage, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div key={story.id} style={{
+                    padding: isMobile ? '12px' : '16px', borderRadius: '8px',
+                    border: `1px solid ${t.borderCard}`, background: t.bgPage,
+                    display: 'flex',
+                    flexDirection: isMobile ? 'column' : 'row',
+                    justifyContent: 'space-between',
+                    alignItems: isMobile ? 'flex-start' : 'center',
+                    gap: isMobile ? '10px' : '0'
+                  }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px', flexWrap: 'wrap' }}>
                         <span style={{ padding: '3px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: '700', letterSpacing: '0.5px', background: `${urgencyColor[story.urgency]}20`, color: urgencyColor[story.urgency], border: `1px solid ${urgencyColor[story.urgency]}40` }}>
@@ -363,7 +390,7 @@ export default function EditorDashboard() {
                         </span>
                         <span style={{ color: t.textMuted, fontSize: '12px' }}>{story.category}</span>
                       </div>
-                      <div style={{ color: t.textPrimary, fontSize: '14px', fontWeight: '600', marginBottom: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      <div style={{ color: t.textPrimary, fontSize: isMobile ? '13px' : '14px', fontWeight: '600', marginBottom: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                         {story.headline}
                       </div>
                       <div style={{ color: t.textMuted, fontSize: '12px' }}>
@@ -372,7 +399,7 @@ export default function EditorDashboard() {
                       </div>
                     </div>
                     {story.status === 'unassigned' && (
-                      <button onClick={() => setAssignStory(story)} style={{ padding: '8px 18px', background: 'transparent', border: `1px solid ${t.accentBorder}`, borderRadius: '6px', color: t.accent, fontSize: '12px', fontWeight: '600', cursor: 'pointer', fontFamily: 'inherit', marginLeft: '16px', whiteSpace: 'nowrap' }}>
+                      <button onClick={() => setAssignStory(story)} style={{ padding: '8px 18px', background: 'transparent', border: `1px solid ${t.accentBorder}`, borderRadius: '6px', color: t.accent, fontSize: '12px', fontWeight: '600', cursor: 'pointer', fontFamily: 'inherit', marginLeft: isMobile ? '0' : '16px', whiteSpace: 'nowrap', width: isMobile ? '100%' : 'auto', minHeight: '44px' }}>
                         ASSIGN
                       </button>
                     )}
@@ -387,7 +414,7 @@ export default function EditorDashboard() {
             )}
           </SectionCard>
 
-          {/* Leave Alerts — collapsible */}
+          {/* Leave Alerts */}
           <SectionCard
             title="LEAVE ALERTS"
             isCollapsed={isCollapsed('leave-alerts')}
@@ -401,7 +428,7 @@ export default function EditorDashboard() {
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                 {alerts.map(alert => (
-                  <div key={alert.id} style={{ padding: '14px', borderRadius: '8px', border: `1px solid ${t.warningBorder}`, background: t.warningBg }}>
+                  <div key={alert.id} style={{ padding: isMobile ? '12px' : '14px', borderRadius: '8px', border: `1px solid ${t.warningBorder}`, background: t.warningBg }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
                       <span style={{ color: t.textPrimary, fontSize: '14px', fontWeight: '600' }}>{alert.reporter_name}</span>
                       <span style={{ padding: '2px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: '700', background: t.dangerBg, color: t.danger, border: `1px solid ${t.dangerBorder}` }}>
@@ -415,8 +442,8 @@ export default function EditorDashboard() {
                       </div>
                     )}
                     <div style={{ display: 'flex', gap: '6px', marginTop: '10px' }}>
-                      <button onClick={() => acknowledgeLeave(alert.id)} style={{ flex: 1, padding: '8px', background: t.successBg, border: `1px solid ${t.successBorder}`, borderRadius: '6px', color: t.success, fontSize: '11px', fontWeight: '600', cursor: 'pointer', fontFamily: 'inherit' }}>APPROVE</button>
-                      <button onClick={() => setRejectModal({ id: alert.id, reporterName: alert.reporter_name })} style={{ flex: 1, padding: '8px', background: t.dangerBg, border: `1px solid ${t.dangerBorder}`, borderRadius: '6px', color: t.danger, fontSize: '11px', fontWeight: '600', cursor: 'pointer', fontFamily: 'inherit' }}>REJECT</button>
+                      <button onClick={() => acknowledgeLeave(alert.id)} style={{ flex: 1, padding: '8px', background: t.successBg, border: `1px solid ${t.successBorder}`, borderRadius: '6px', color: t.success, fontSize: '11px', fontWeight: '600', cursor: 'pointer', fontFamily: 'inherit', minHeight: '44px' }}>APPROVE</button>
+                      <button onClick={() => setRejectModal({ id: alert.id, reporterName: alert.reporter_name })} style={{ flex: 1, padding: '8px', background: t.dangerBg, border: `1px solid ${t.dangerBorder}`, borderRadius: '6px', color: t.danger, fontSize: '11px', fontWeight: '600', cursor: 'pointer', fontFamily: 'inherit', minHeight: '44px' }}>REJECT</button>
                     </div>
                   </div>
                 ))}
@@ -429,12 +456,12 @@ export default function EditorDashboard() {
       {/* Create Story Modal */}
       {showCreate && (
         <div role="dialog" aria-modal="true" aria-label="Create new story"
-          style={{ position: 'fixed', inset: 0, background: t.overlayBg, display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
+          style={{ position: 'fixed', inset: 0, background: t.overlayBg, display: 'flex', alignItems: isMobile ? 'flex-end' : 'center', justifyContent: 'center', zIndex: 1000 }}
           onClick={e => { if (e.target === e.currentTarget) setShowCreate(false) }}>
-          <div style={{ background: t.bgCard, border: `1px solid ${t.borderCard}`, borderRadius: '12px', width: '100%', maxWidth: '500px', margin: '24px', padding: '28px', fontFamily: 'inherit', maxHeight: '90vh', overflowY: 'auto', boxShadow: t.shadow }}>
+          <div style={{ background: t.bgCard, border: `1px solid ${t.borderCard}`, borderRadius: isMobile ? '14px 14px 0 0' : '12px', width: '100%', maxWidth: isMobile ? '100%' : '500px', margin: isMobile ? '0' : '24px', padding: isMobile ? '20px 16px' : '28px', fontFamily: 'inherit', maxHeight: isMobile ? '90vh' : '90vh', overflowY: 'auto', boxShadow: t.shadow }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '24px', alignItems: 'center' }}>
-              <h2 style={{ color: t.textPrimary, margin: 0, fontSize: '18px', fontWeight: '700' }}>New Story</h2>
-              <button onClick={() => setShowCreate(false)} style={{ background: 'none', border: 'none', color: t.textMuted, fontSize: '22px', cursor: 'pointer', lineHeight: 1 }} aria-label="Close">x</button>
+              <h2 style={{ color: t.textPrimary, margin: 0, fontSize: isMobile ? '16px' : '18px', fontWeight: '700' }}>New Story</h2>
+              <button onClick={() => setShowCreate(false)} style={{ background: 'none', border: 'none', color: t.textMuted, fontSize: '22px', cursor: 'pointer', lineHeight: 1, minWidth: '44px', minHeight: '44px' }} aria-label="Close">x</button>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               <div>
@@ -451,7 +478,11 @@ export default function EditorDashboard() {
                 <label style={{ color: t.textSecondary, fontSize: '12px', fontWeight: '600', display: 'block', marginBottom: '6px' }}>DESCRIPTION</label>
                 <textarea value={form.description} onChange={e => setForm(p => ({ ...p, description: e.target.value }))} placeholder="Optional details..." rows={3} style={{ ...inputStyle, resize: 'none' }} />
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr',
+                gap: '12px'
+              }}>
                 <div>
                   <label style={{ color: t.textSecondary, fontSize: '12px', fontWeight: '600', display: 'block', marginBottom: '6px' }}>CATEGORY</label>
                   <select value={form.category} onChange={e => setForm(p => ({ ...p, category: e.target.value }))} style={{ ...inputStyle, background: t.bgCard }}>
@@ -473,7 +504,7 @@ export default function EditorDashboard() {
                   <input type="number" min={1} max={5} value={form.priority} onChange={e => setForm(p => ({ ...p, priority: +e.target.value }))} style={inputStyle} />
                 </div>
               </div>
-              <button onClick={createStory} style={{ padding: '14px', background: t.accent, border: 'none', borderRadius: '8px', color: t.accentText, fontSize: '13px', fontWeight: '700', cursor: 'pointer', fontFamily: 'inherit', marginTop: '4px' }}>
+              <button onClick={createStory} style={{ padding: '14px', background: t.accent, border: 'none', borderRadius: '8px', color: t.accentText, fontSize: '13px', fontWeight: '700', cursor: 'pointer', fontFamily: 'inherit', marginTop: '4px', minHeight: '48px' }}>
                 CREATE STORY
               </button>
             </div>
@@ -484,21 +515,21 @@ export default function EditorDashboard() {
       {/* Reject Leave Modal */}
       {rejectModal && (
         <div role="dialog" aria-modal="true"
-          style={{ position: 'fixed', inset: 0, background: t.overlayBg, display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
+          style={{ position: 'fixed', inset: 0, background: t.overlayBg, display: 'flex', alignItems: isMobile ? 'flex-end' : 'center', justifyContent: 'center', zIndex: 1000 }}
           onClick={e => { if (e.target === e.currentTarget) { setRejectModal(null); setRejectReason('') } }}>
-          <div style={{ background: t.bgCard, border: `1px solid ${t.dangerBorder}`, borderRadius: '12px', width: '100%', maxWidth: '420px', margin: '24px', padding: '28px', fontFamily: 'inherit', boxShadow: t.shadow }}>
-            <h2 style={{ color: t.textPrimary, margin: '0 0 8px', fontSize: '18px', fontWeight: '700' }}>Reject Leave Request</h2>
+          <div style={{ background: t.bgCard, border: `1px solid ${t.dangerBorder}`, borderRadius: isMobile ? '14px 14px 0 0' : '12px', width: '100%', maxWidth: isMobile ? '100%' : '420px', margin: isMobile ? '0' : '24px', padding: isMobile ? '20px 16px' : '28px', fontFamily: 'inherit', boxShadow: t.shadow }}>
+            <h2 style={{ color: t.textPrimary, margin: '0 0 8px', fontSize: isMobile ? '16px' : '18px', fontWeight: '700' }}>Reject Leave Request</h2>
             <p style={{ color: t.textMuted, fontSize: '13px', margin: '0 0 20px' }}>
               Rejecting leave for <span style={{ color: t.textPrimary, fontWeight: '600' }}>{rejectModal.reporterName}</span>
             </p>
             <div style={{ marginBottom: '16px' }}>
               <label style={{ color: t.textSecondary, fontSize: '12px', fontWeight: '600', display: 'block', marginBottom: '6px' }}>REASON FOR REJECTION</label>
               <textarea value={rejectReason} onChange={e => setRejectReason(e.target.value)} rows={3} placeholder="Explain why the leave is rejected..."
-                style={{ width: '100%', padding: '10px 14px', background: t.bgInput, border: `1px solid ${t.borderInput}`, borderRadius: '8px', color: t.textPrimary, fontSize: '13px', outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit', resize: 'none' }} />
+                style={{ width: '100%', padding: '10px 14px', background: t.bgInput, border: `1px solid ${t.borderInput}`, borderRadius: '8px', color: t.textPrimary, fontSize: isMobile ? '16px' : '13px', outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit', resize: 'none' }} />
             </div>
             <div style={{ display: 'flex', gap: '8px' }}>
-              <button onClick={() => { setRejectModal(null); setRejectReason('') }} style={{ flex: 1, padding: '12px', background: 'transparent', border: `1px solid ${t.borderCard}`, borderRadius: '8px', color: t.textMuted, fontSize: '13px', cursor: 'pointer', fontFamily: 'inherit' }}>CANCEL</button>
-              <button onClick={() => rejectLeave(rejectModal.id)} disabled={!rejectReason.trim()} style={{ flex: 1, padding: '12px', background: t.dangerBg, border: `1px solid ${t.dangerBorder}`, borderRadius: '8px', color: t.danger, fontSize: '13px', fontWeight: '700', cursor: rejectReason.trim() ? 'pointer' : 'not-allowed', fontFamily: 'inherit', opacity: rejectReason.trim() ? 1 : 0.5 }}>
+              <button onClick={() => { setRejectModal(null); setRejectReason('') }} style={{ flex: 1, padding: '12px', background: 'transparent', border: `1px solid ${t.borderCard}`, borderRadius: '8px', color: t.textMuted, fontSize: '13px', cursor: 'pointer', fontFamily: 'inherit', minHeight: '48px' }}>CANCEL</button>
+              <button onClick={() => rejectLeave(rejectModal.id)} disabled={!rejectReason.trim()} style={{ flex: 1, padding: '12px', background: t.dangerBg, border: `1px solid ${t.dangerBorder}`, borderRadius: '8px', color: t.danger, fontSize: '13px', fontWeight: '700', cursor: rejectReason.trim() ? 'pointer' : 'not-allowed', fontFamily: 'inherit', opacity: rejectReason.trim() ? 1 : 0.5, minHeight: '48px' }}>
                 CONFIRM REJECT
               </button>
             </div>
@@ -509,12 +540,12 @@ export default function EditorDashboard() {
       {/* Override Detail Modal */}
       {overrideDetailModal && (
         <div role="dialog" aria-modal="true"
-          style={{ position: 'fixed', inset: 0, background: t.overlayBg, display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
+          style={{ position: 'fixed', inset: 0, background: t.overlayBg, display: 'flex', alignItems: isMobile ? 'flex-end' : 'center', justifyContent: 'center', zIndex: 1000 }}
           onClick={e => { if (e.target === e.currentTarget) setOverrideDetailModal(null) }}>
-          <div style={{ background: t.bgCard, border: `1px solid ${overrideDetailModal.override_status === 'accepted' ? t.successBorder : t.dangerBorder}`, borderRadius: '12px', width: '100%', maxWidth: '460px', margin: '24px', padding: '28px', fontFamily: 'inherit', boxShadow: t.shadow }}>
+          <div style={{ background: t.bgCard, border: `1px solid ${overrideDetailModal.override_status === 'accepted' ? t.successBorder : t.dangerBorder}`, borderRadius: isMobile ? '14px 14px 0 0' : '12px', width: '100%', maxWidth: isMobile ? '100%' : '460px', margin: isMobile ? '0' : '24px', padding: isMobile ? '20px 16px' : '28px', fontFamily: 'inherit', boxShadow: t.shadow }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '20px' }}>
-              <h2 style={{ color: t.textPrimary, margin: 0, fontSize: '18px', fontWeight: '700' }}>Override Details</h2>
-              <button onClick={() => setOverrideDetailModal(null)} style={{ background: 'none', border: 'none', color: t.textMuted, fontSize: '22px', cursor: 'pointer' }} aria-label="Close">x</button>
+              <h2 style={{ color: t.textPrimary, margin: 0, fontSize: isMobile ? '16px' : '18px', fontWeight: '700' }}>Override Details</h2>
+              <button onClick={() => setOverrideDetailModal(null)} style={{ background: 'none', border: 'none', color: t.textMuted, fontSize: '22px', cursor: 'pointer', minWidth: '44px', minHeight: '44px' }} aria-label="Close">x</button>
             </div>
             <span style={{ padding: '4px 12px', borderRadius: '4px', fontSize: '11px', fontWeight: '700', background: overrideDetailModal.override_status === 'accepted' ? t.successBg : t.dangerBg, color: overrideDetailModal.override_status === 'accepted' ? t.success : t.danger, border: `1px solid ${overrideDetailModal.override_status === 'accepted' ? t.successBorder : t.dangerBorder}` }}>
               REPORTER {overrideDetailModal.override_status?.toUpperCase()}
@@ -536,7 +567,7 @@ export default function EditorDashboard() {
                 {overrideDetailModal.override_responded_at && <p style={{ color: t.textMuted, fontSize: '11px', margin: '6px 0 0' }}>{new Date(overrideDetailModal.override_responded_at).toLocaleString()}</p>}
               </div>
             </div>
-            <button onClick={() => setOverrideDetailModal(null)} style={{ width: '100%', padding: '12px', background: 'transparent', border: `1px solid ${t.borderCard}`, borderRadius: '8px', color: t.textMuted, fontSize: '13px', cursor: 'pointer', fontFamily: 'inherit', marginTop: '16px' }}>CLOSE</button>
+            <button onClick={() => setOverrideDetailModal(null)} style={{ width: '100%', padding: '12px', background: 'transparent', border: `1px solid ${t.borderCard}`, borderRadius: '8px', color: t.textMuted, fontSize: '13px', cursor: 'pointer', fontFamily: 'inherit', marginTop: '16px', minHeight: '48px' }}>CLOSE</button>
           </div>
         </div>
       )}
@@ -544,21 +575,21 @@ export default function EditorDashboard() {
       {/* Filing Reject Modal */}
       {filingRejectModal && (
         <div role="dialog" aria-modal="true"
-          style={{ position: 'fixed', inset: 0, background: t.overlayBg, display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
+          style={{ position: 'fixed', inset: 0, background: t.overlayBg, display: 'flex', alignItems: isMobile ? 'flex-end' : 'center', justifyContent: 'center', zIndex: 1000 }}
           onClick={e => { if (e.target === e.currentTarget) { setFilingRejectModal(null); setFilingRejectNote('') } }}>
-          <div style={{ background: t.bgCard, border: `1px solid ${t.dangerBorder}`, borderRadius: '12px', width: '100%', maxWidth: '420px', margin: '24px', padding: '28px', fontFamily: 'inherit', boxShadow: t.shadow }}>
-            <h2 style={{ color: t.textPrimary, margin: '0 0 8px', fontSize: '18px', fontWeight: '700' }}>Reject Filing Request</h2>
+          <div style={{ background: t.bgCard, border: `1px solid ${t.dangerBorder}`, borderRadius: isMobile ? '14px 14px 0 0' : '12px', width: '100%', maxWidth: isMobile ? '100%' : '420px', margin: isMobile ? '0' : '24px', padding: isMobile ? '20px 16px' : '28px', fontFamily: 'inherit', boxShadow: t.shadow }}>
+            <h2 style={{ color: t.textPrimary, margin: '0 0 8px', fontSize: isMobile ? '16px' : '18px', fontWeight: '700' }}>Reject Filing Request</h2>
             <p style={{ color: t.textMuted, fontSize: '13px', margin: '0 0 16px' }}>
               Rejecting request from <span style={{ color: t.textPrimary, fontWeight: '600' }}>{filingRejectModal.reporter_name}</span> for <span style={{ color: t.textPrimary }}>{filingRejectModal.requested_date}</span>
             </p>
             <div style={{ marginBottom: '16px' }}>
               <label style={{ color: t.textSecondary, fontSize: '12px', fontWeight: '600', display: 'block', marginBottom: '6px' }}>REASON (optional)</label>
               <textarea value={filingRejectNote} onChange={e => setFilingRejectNote(e.target.value)} rows={3} placeholder="Why are you rejecting..."
-                style={{ width: '100%', padding: '10px 14px', background: t.bgInput, border: `1px solid ${t.borderInput}`, borderRadius: '8px', color: t.textPrimary, fontSize: '13px', outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit', resize: 'none' }} />
+                style={{ width: '100%', padding: '10px 14px', background: t.bgInput, border: `1px solid ${t.borderInput}`, borderRadius: '8px', color: t.textPrimary, fontSize: isMobile ? '16px' : '13px', outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit', resize: 'none' }} />
             </div>
             <div style={{ display: 'flex', gap: '8px' }}>
-              <button onClick={() => { setFilingRejectModal(null); setFilingRejectNote('') }} style={{ flex: 1, padding: '12px', background: 'transparent', border: `1px solid ${t.borderCard}`, borderRadius: '8px', color: t.textMuted, fontSize: '13px', cursor: 'pointer', fontFamily: 'inherit' }}>CANCEL</button>
-              <button onClick={rejectFilingRequest} style={{ flex: 1, padding: '12px', background: t.dangerBg, border: `1px solid ${t.dangerBorder}`, borderRadius: '8px', color: t.danger, fontSize: '13px', fontWeight: '700', cursor: 'pointer', fontFamily: 'inherit' }}>CONFIRM REJECT</button>
+              <button onClick={() => { setFilingRejectModal(null); setFilingRejectNote('') }} style={{ flex: 1, padding: '12px', background: 'transparent', border: `1px solid ${t.borderCard}`, borderRadius: '8px', color: t.textMuted, fontSize: '13px', cursor: 'pointer', fontFamily: 'inherit', minHeight: '48px' }}>CANCEL</button>
+              <button onClick={rejectFilingRequest} style={{ flex: 1, padding: '12px', background: t.dangerBg, border: `1px solid ${t.dangerBorder}`, borderRadius: '8px', color: t.danger, fontSize: '13px', fontWeight: '700', cursor: 'pointer', fontFamily: 'inherit', minHeight: '48px' }}>CONFIRM REJECT</button>
             </div>
           </div>
         </div>
@@ -568,6 +599,3 @@ export default function EditorDashboard() {
     </div>
   )
 }
-
-
-
