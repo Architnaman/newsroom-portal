@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase'
 import Navbar from '../components/Navbar'
 import { useTheme } from '../context/ThemeContext'
 import { useDateFormat } from '../context/DateFormatContext'
+import { useResponsive } from '../hooks/useResponsive'
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
@@ -32,6 +33,7 @@ export default function ReporterView() {
   const navigate = useNavigate()
   const { t } = useTheme()
   const { formatDate } = useDateFormat()
+  const { isMobile, isTablet } = useResponsive()
 
   const [reporter, setReporter] = useState<any>(null)
   const [stories, setStories] = useState<any[]>([])
@@ -62,14 +64,7 @@ export default function ReporterView() {
   async function load() {
     if (!reporterId) return
     setLoading(true)
-    const [
-      { data: rep },
-      { data: assignments },
-      { data: leavesData },
-      { data: availData },
-      { data: holidayData },
-      { data: filingData }
-    ] = await Promise.all([
+    const [{ data: rep }, { data: assignments }, { data: leavesData }, { data: availData }, { data: holidayData }, { data: filingData }] = await Promise.all([
       supabase.from('reporters').select('*').eq('id', reporterId).single(),
       supabase.from('assignments').select('*, stories(*)').eq('reporter_id', reporterId).eq('is_active', true).order('assigned_at', { ascending: false }),
       supabase.from('leave_requests').select('*').eq('reporter_id', reporterId).order('leave_date', { ascending: false }),
@@ -110,8 +105,7 @@ export default function ReporterView() {
     const diff = d.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1)
     d.setDate(diff)
     const leaveWeekStart = d.toISOString().split('T')[0]
-    const { data: avail } = await supabase.from('availability').select('*')
-      .eq('reporter_id', reporterId).eq('week_start_date', leaveWeekStart).maybeSingle()
+    const { data: avail } = await supabase.from('availability').select('*').eq('reporter_id', reporterId).eq('week_start_date', leaveWeekStart).maybeSingle()
     if (avail) {
       const updatedDays = avail.available_days.filter((dd: string) => dd !== dayName)
       await supabase.from('availability').update({ available_days: updatedDays }).eq('id', avail.id)
@@ -144,17 +138,14 @@ export default function ReporterView() {
     width: '100%', padding: '11px 14px',
     background: t.bgInput, border: `1px solid ${t.borderInput}`,
     borderRadius: '8px', color: t.textPrimary,
-    fontSize: '13px', outline: 'none',
-    boxSizing: 'border-box', fontFamily: 'inherit',
+    fontSize: isMobile ? '16px' : '13px',
+    outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit',
   }
 
   const cardStyle: React.CSSProperties = {
-    background: t.bgCard,
-    border: `1px solid ${t.borderCard}`,
-    borderRadius: '10px',
-    padding: '20px 24px',
-    boxShadow: t.shadowCard,
-    marginBottom: '24px'
+    background: t.bgCard, border: `1px solid ${t.borderCard}`,
+    borderRadius: '10px', padding: isMobile ? '16px' : '20px 24px',
+    boxShadow: t.shadowCard, marginBottom: '24px'
   }
 
   if (loading) return (
@@ -164,106 +155,81 @@ export default function ReporterView() {
   )
 
   return (
-    <div style={{
-      minHeight: '100vh',
-      background: t.bgPage,
-      fontFamily: '"Inter", "DM Mono", "Courier New", monospace',
-      color: t.textPrimary
-    }}>
+    <div style={{ minHeight: '100vh', background: t.bgPage, fontFamily: '"Inter", "DM Mono", "Courier New", monospace', color: t.textPrimary }}>
       <Navbar />
 
       {/* Impersonation Banner */}
       <div style={{
-        background: t.accentBg,
-        borderBottom: `1px solid ${t.accentBorder}`,
-        padding: '10px 24px',
-        display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+        background: t.accentBg, borderBottom: `1px solid ${t.accentBorder}`,
+        padding: isMobile ? '10px 12px' : '10px 24px',
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px'
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: t.accent }} />
-          <span style={{ color: t.accent, fontSize: '12px', fontWeight: '600', letterSpacing: '0.5px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+          <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: t.accent, flexShrink: 0 }} />
+          <span style={{ color: t.accent, fontSize: isMobile ? '11px' : '12px', fontWeight: '600', letterSpacing: '0.5px' }}>
             VIEWING AS: <span style={{ color: t.textPrimary, fontWeight: '700' }}>{reporter?.name?.toUpperCase()}</span>
           </span>
-          <span style={{ color: t.textMuted, fontSize: '11px' }}>— Editor View (Read Only + File Leave)</span>
+          {!isMobile && <span style={{ color: t.textMuted, fontSize: '11px' }}>— Editor View (Read Only + File Leave)</span>}
         </div>
-        <button
-          onClick={() => navigate('/roster')}
-          style={{
-            padding: '7px 18px', background: t.accentBg,
-            border: `1px solid ${t.accentBorder}`, borderRadius: '6px',
-            color: t.accent, fontSize: '11px', fontWeight: '700',
-            letterSpacing: '0.5px', cursor: 'pointer', fontFamily: 'inherit',
-            transition: 'all 0.15s'
-          }}>
+        <button onClick={() => navigate('/roster')}
+          style={{ padding: '7px 14px', background: t.accentBg, border: `1px solid ${t.accentBorder}`, borderRadius: '6px', color: t.accent, fontSize: '11px', fontWeight: '700', letterSpacing: '0.5px', cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.15s', whiteSpace: 'nowrap', minHeight: '44px' }}>
           EXIT VIEW
         </button>
       </div>
 
       {/* Success message */}
       {successMsg && (
-        <div style={{
-          background: t.successBg,
-          borderBottom: `1px solid ${t.successBorder}`,
-          padding: '10px 24px'
-        }}>
+        <div style={{ background: t.successBg, borderBottom: `1px solid ${t.successBorder}`, padding: '10px 24px' }}>
           <span style={{ color: t.success, fontSize: '13px', fontWeight: '600' }}>✓ {successMsg}</span>
         </div>
       )}
 
-      <main role="main" style={{ padding: '32px 24px', maxWidth: '960px', margin: '0 auto' }}>
+      <main role="main" style={{
+        padding: isMobile ? '16px 12px' : isTablet ? '24px 16px' : '32px 24px',
+        maxWidth: isMobile ? '100%' : '960px',
+        margin: '0 auto'
+      }}>
 
         {/* Reporter Info Card */}
         <div style={{
           ...cardStyle,
-          display: 'flex', justifyContent: 'space-between',
-          alignItems: 'center', flexWrap: 'wrap', gap: '16px',
+          display: 'flex',
+          flexDirection: isMobile ? 'column' : 'row',
+          justifyContent: 'space-between',
+          alignItems: isMobile ? 'flex-start' : 'center',
+          gap: '16px',
           border: `1px solid ${t.accentBorder}`
         }}>
           <div>
-            <h1 style={{ color: t.textPrimary, margin: '0 0 4px', fontSize: '22px', fontWeight: '700' }}>
+            <h1 style={{ color: t.textPrimary, margin: '0 0 4px', fontSize: isMobile ? '18px' : '22px', fontWeight: '700' }}>
               {reporter?.name}
             </h1>
-            <p style={{ color: t.textMuted, margin: '0 0 10px', fontSize: '13px' }}>
-              {reporter?.email}
-            </p>
+            <p style={{ color: t.textMuted, margin: '0 0 10px', fontSize: '13px' }}>{reporter?.email}</p>
             <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
               {reporter?.beats?.map((b: string) => (
-                <span key={b} style={{
-                  padding: '3px 10px', background: t.accentBg,
-                  border: `1px solid ${t.accentBorder}`, borderRadius: '4px',
-                  color: t.accent, fontSize: '11px', fontWeight: '600'
-                }}>
-                  {b}
-                </span>
+                <span key={b} style={{ padding: '3px 10px', background: t.accentBg, border: `1px solid ${t.accentBorder}`, borderRadius: '4px', color: t.accent, fontSize: '11px', fontWeight: '600' }}>{b}</span>
               ))}
             </div>
           </div>
-          <div style={{ display: 'flex', gap: '20px', alignItems: 'center' }}>
-            <div style={{ textAlign: 'center' }}>
-              <div style={{ color: t.accent, fontSize: '28px', fontWeight: '800', lineHeight: 1 }}>
-                {active.length}
+          <div style={{
+            display: 'flex',
+            flexDirection: isMobile ? 'column' : 'row',
+            gap: isMobile ? '12px' : '20px',
+            alignItems: isMobile ? 'flex-start' : 'center',
+            width: isMobile ? '100%' : 'auto'
+          }}>
+            <div style={{ display: 'flex', gap: '20px' }}>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ color: t.accent, fontSize: '28px', fontWeight: '800', lineHeight: 1 }}>{active.length}</div>
+                <div style={{ color: t.textMuted, fontSize: '10px', fontWeight: '600', letterSpacing: '0.5px', marginTop: '4px' }}>ACTIVE</div>
               </div>
-              <div style={{ color: t.textMuted, fontSize: '10px', fontWeight: '600', letterSpacing: '0.5px', marginTop: '4px' }}>
-                ACTIVE
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ color: t.success, fontSize: '28px', fontWeight: '800', lineHeight: 1 }}>{reporter?.complexity_level}</div>
+                <div style={{ color: t.textMuted, fontSize: '10px', fontWeight: '600', letterSpacing: '0.5px', marginTop: '4px' }}>COMPLEXITY</div>
               </div>
             </div>
-            <div style={{ textAlign: 'center' }}>
-              <div style={{ color: t.success, fontSize: '28px', fontWeight: '800', lineHeight: 1 }}>
-                {reporter?.complexity_level}
-              </div>
-              <div style={{ color: t.textMuted, fontSize: '10px', fontWeight: '600', letterSpacing: '0.5px', marginTop: '4px' }}>
-                COMPLEXITY
-              </div>
-            </div>
-            <button
-              onClick={() => setLeaveModal(true)}
-              style={{
-                padding: '10px 18px', background: t.warningBg,
-                border: `1px solid ${t.warningBorder}`, borderRadius: '8px',
-                color: t.warning, fontSize: '12px', fontWeight: '700',
-                letterSpacing: '0.5px', cursor: 'pointer', fontFamily: 'inherit',
-                transition: 'all 0.15s'
-              }}>
+            <button onClick={() => setLeaveModal(true)}
+              style={{ padding: '10px 18px', background: t.warningBg, border: `1px solid ${t.warningBorder}`, borderRadius: '8px', color: t.warning, fontSize: '12px', fontWeight: '700', letterSpacing: '0.5px', cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.15s', width: isMobile ? '100%' : 'auto', minHeight: '44px' }}>
               + FILE LEAVE ON BEHALF
             </button>
           </div>
@@ -271,43 +237,27 @@ export default function ReporterView() {
 
         {/* This Week Availability */}
         <div style={cardStyle}>
-          <h2 style={{ color: t.textPrimary, margin: '0 0 16px', fontSize: '14px', fontWeight: '700', letterSpacing: '0.5px' }}>
-            THIS WEEK AVAILABILITY
-          </h2>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '8px' }}>
+          <h2 style={{ color: t.textPrimary, margin: '0 0 16px', fontSize: '14px', fontWeight: '700', letterSpacing: '0.5px' }}>THIS WEEK AVAILABILITY</h2>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: isMobile ? '4px' : '8px' }}>
             {DAYS.map(day => {
               const status = getDayStatus(day)
               const isToday_ = weekDates[day] === today
               const holiday = holidays.find(h => h.date === weekDates[day])
-
               const colors: Record<string, { bg: string, border: string, color: string, label: string }> = {
-                available: { bg: t.successBg, border: t.successBorder, color: t.success, label: 'AVAIL' },
-                unavailable: { bg: t.bgPage, border: t.borderCard, color: t.textMuted, label: '–' },
-                leave_approved: { bg: t.dangerBg, border: t.dangerBorder, color: t.danger, label: 'LEAVE' },
-                leave_pending: { bg: t.warningBg, border: t.warningBorder, color: t.warning, label: 'PEND' },
-                holiday: { bg: t.dangerBg, border: t.dangerBorder, color: t.danger, label: 'HOL' },
-                past: { bg: t.bgPage, border: t.borderCard, color: t.textDisabled, label: '' },
+                available:     { bg: t.successBg, border: t.successBorder, color: t.success,      label: 'AVAIL' },
+                unavailable:   { bg: t.bgPage,    border: t.borderCard,    color: t.textMuted,    label: '–' },
+                leave_approved:{ bg: t.dangerBg,  border: t.dangerBorder,  color: t.danger,       label: 'LEAVE' },
+                leave_pending: { bg: t.warningBg, border: t.warningBorder, color: t.warning,      label: 'PEND' },
+                holiday:       { bg: t.dangerBg,  border: t.dangerBorder,  color: t.danger,       label: 'HOL' },
+                past:          { bg: t.bgPage,    border: t.borderCard,    color: t.textDisabled, label: '' },
               }
               const c = colors[status] || colors.unavailable
-
               return (
-                <div key={day} style={{
-                  padding: '12px 6px', borderRadius: '8px',
-                  background: c.bg, border: `2px solid ${c.border}`,
-                  textAlign: 'center',
-                  outline: isToday_ ? `3px solid ${t.accent}` : 'none',
-                  outlineOffset: '2px'
-                }}>
-                  <div style={{ color: t.textMuted, fontSize: '10px', fontWeight: '700', marginBottom: '6px', letterSpacing: '0.5px' }}>
-                    {day}
-                  </div>
-                  <div style={{ color: c.color, fontSize: '10px', fontWeight: '700' }}>
-                    {c.label}
-                  </div>
-                  {holiday && (
-                    <div style={{ color: t.danger, fontSize: '7px', marginTop: '3px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {holiday.name}
-                    </div>
+                <div key={day} style={{ padding: isMobile ? '8px 4px' : '12px 6px', borderRadius: '8px', background: c.bg, border: `2px solid ${c.border}`, textAlign: 'center', outline: isToday_ ? `3px solid ${t.accent}` : 'none', outlineOffset: '2px' }}>
+                  <div style={{ color: t.textMuted, fontSize: isMobile ? '9px' : '10px', fontWeight: '700', marginBottom: '4px', letterSpacing: '0.5px' }}>{day}</div>
+                  <div style={{ color: c.color, fontSize: isMobile ? '8px' : '10px', fontWeight: '700' }}>{c.label}</div>
+                  {!isMobile && holiday && (
+                    <div style={{ color: t.danger, fontSize: '7px', marginTop: '3px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{holiday.name}</div>
                   )}
                 </div>
               )
@@ -319,47 +269,23 @@ export default function ReporterView() {
         <div style={cardStyle}>
           <h2 style={{ color: t.textPrimary, margin: '0 0 16px', fontSize: '14px', fontWeight: '700', letterSpacing: '0.5px' }}>
             ACTIVE STORIES
-            <span style={{ marginLeft: '8px', padding: '2px 10px', background: t.accentBg, color: t.accent, borderRadius: '10px', fontSize: '12px', border: `1px solid ${t.accentBorder}` }}>
-              {active.length}
-            </span>
+            <span style={{ marginLeft: '8px', padding: '2px 10px', background: t.accentBg, color: t.accent, borderRadius: '10px', fontSize: '12px', border: `1px solid ${t.accentBorder}` }}>{active.length}</span>
           </h2>
           {active.length === 0 ? (
-            <div style={{ color: t.textDisabled, fontSize: '14px', textAlign: 'center', padding: '32px', border: `1px dashed ${t.borderCard}`, borderRadius: '8px', background: t.bgPage }}>
-              No active stories
-            </div>
+            <div style={{ color: t.textDisabled, fontSize: '14px', textAlign: 'center', padding: '32px', border: `1px dashed ${t.borderCard}`, borderRadius: '8px', background: t.bgPage }}>No active stories</div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               {active.map(story => (
-                <div key={story.id} style={{
-                  padding: '16px 20px', borderRadius: '8px',
-                  border: `1px solid ${t.borderCard}`, background: t.bgPage
-                }}>
+                <div key={story.id} style={{ padding: isMobile ? '12px' : '16px 20px', borderRadius: '8px', border: `1px solid ${t.borderCard}`, background: t.bgPage }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', flexWrap: 'wrap' }}>
-                    <span style={{
-                      padding: '3px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: '700',
-                      background: `${urgencyColor[story.urgency]}20`, color: urgencyColor[story.urgency],
-                      border: `1px solid ${urgencyColor[story.urgency]}40`
-                    }}>
-                      {story.urgency?.toUpperCase()}
-                    </span>
-                    <span style={{
-                      padding: '3px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: '600',
-                      background: `${statusColor[story.status]}15`, color: statusColor[story.status]
-                    }}>
-                      {story.status?.replace('_', ' ').toUpperCase()}
-                    </span>
+                    <span style={{ padding: '3px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: '700', background: `${urgencyColor[story.urgency]}20`, color: urgencyColor[story.urgency], border: `1px solid ${urgencyColor[story.urgency]}40` }}>{story.urgency?.toUpperCase()}</span>
+                    <span style={{ padding: '3px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: '600', background: `${statusColor[story.status]}15`, color: statusColor[story.status] }}>{story.status?.replace('_', ' ').toUpperCase()}</span>
                     <span style={{ color: t.textMuted, fontSize: '12px' }}>{story.category}</span>
                   </div>
-                  <div style={{ color: t.textPrimary, fontSize: '15px', fontWeight: '700', marginBottom: '6px' }}>
-                    {story.headline}
-                  </div>
+                  <div style={{ color: t.textPrimary, fontSize: isMobile ? '13px' : '15px', fontWeight: '700', marginBottom: '6px' }}>{story.headline}</div>
                   <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
-                    <span style={{ color: t.textMuted, fontSize: '12px' }}>
-                      Deadline: <span style={{ color: t.textSecondary, fontWeight: '600' }}>{formatDate(story.deadline)}</span>
-                    </span>
-                    <span style={{ color: t.textMuted, fontSize: '12px' }}>
-                      Complexity: <span style={{ color: t.textSecondary, fontWeight: '600' }}>{story.complexity}/5</span>
-                    </span>
+                    <span style={{ color: t.textMuted, fontSize: '12px' }}>Deadline: <span style={{ color: t.textSecondary, fontWeight: '600' }}>{formatDate(story.deadline)}</span></span>
+                    <span style={{ color: t.textMuted, fontSize: '12px' }}>Complexity: <span style={{ color: t.textSecondary, fontWeight: '600' }}>{story.complexity}/5</span></span>
                   </div>
                   {story.reassign_reason && (
                     <div style={{ marginTop: '10px', padding: '10px 14px', background: t.warningBg, border: `1px solid ${t.warningBorder}`, borderRadius: '6px' }}>
@@ -378,35 +304,25 @@ export default function ReporterView() {
           <div style={cardStyle}>
             <h2 style={{ color: t.textPrimary, margin: '0 0 16px', fontSize: '14px', fontWeight: '700', letterSpacing: '0.5px' }}>
               FILED / PUBLISHED
-              <span style={{ marginLeft: '8px', padding: '2px 10px', background: t.successBg, color: t.success, borderRadius: '10px', fontSize: '12px', border: `1px solid ${t.successBorder}` }}>
-                {filed.length}
-              </span>
+              <span style={{ marginLeft: '8px', padding: '2px 10px', background: t.successBg, color: t.success, borderRadius: '10px', fontSize: '12px', border: `1px solid ${t.successBorder}` }}>{filed.length}</span>
             </h2>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               {filed.map(story => (
                 <div key={story.id} style={{
-                  padding: '14px 18px', borderRadius: '8px',
+                  padding: isMobile ? '12px' : '14px 18px', borderRadius: '8px',
                   border: `1px solid ${story.status === 'published' ? t.successBorder : 'rgba(167,139,250,0.3)'}`,
                   background: story.status === 'published' ? t.successBg : 'rgba(167,139,250,0.08)',
-                  display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+                  display: 'flex',
+                  flexDirection: isMobile ? 'column' : 'row',
+                  justifyContent: 'space-between',
+                  alignItems: isMobile ? 'flex-start' : 'center',
+                  gap: isMobile ? '8px' : '0'
                 }}>
                   <div>
-                    <div style={{ color: t.textPrimary, fontSize: '14px', fontWeight: '600', marginBottom: '2px' }}>
-                      {story.headline}
-                    </div>
-                    {story.filed_file_name && (
-                      <div style={{ color: '#a78bfa', fontSize: '11px', fontWeight: '500' }}>
-                        Filed: {story.filed_file_name}
-                      </div>
-                    )}
+                    <div style={{ color: t.textPrimary, fontSize: isMobile ? '13px' : '14px', fontWeight: '600', marginBottom: '2px' }}>{story.headline}</div>
+                    {story.filed_file_name && <div style={{ color: '#a78bfa', fontSize: '11px', fontWeight: '500' }}>Filed: {story.filed_file_name}</div>}
                   </div>
-                  <span style={{
-                    padding: '3px 10px', borderRadius: '4px', fontSize: '11px', fontWeight: '700',
-                    letterSpacing: '0.5px', marginLeft: '12px',
-                    background: story.status === 'published' ? t.successBg : 'rgba(167,139,250,0.15)',
-                    color: story.status === 'published' ? t.success : '#a78bfa',
-                    border: `1px solid ${story.status === 'published' ? t.successBorder : 'rgba(167,139,250,0.3)'}`
-                  }}>
+                  <span style={{ padding: '3px 10px', borderRadius: '4px', fontSize: '11px', fontWeight: '700', letterSpacing: '0.5px', marginLeft: isMobile ? '0' : '12px', background: story.status === 'published' ? t.successBg : 'rgba(167,139,250,0.15)', color: story.status === 'published' ? t.success : '#a78bfa', border: `1px solid ${story.status === 'published' ? t.successBorder : 'rgba(167,139,250,0.3)'}` }}>
                     {story.status?.toUpperCase()}
                   </span>
                 </div>
@@ -417,59 +333,36 @@ export default function ReporterView() {
 
         {/* Leave History */}
         <div style={cardStyle}>
-          <h2 style={{ color: t.textPrimary, margin: '0 0 16px', fontSize: '14px', fontWeight: '700', letterSpacing: '0.5px' }}>
-            LEAVE HISTORY
-          </h2>
+          <h2 style={{ color: t.textPrimary, margin: '0 0 16px', fontSize: '14px', fontWeight: '700', letterSpacing: '0.5px' }}>LEAVE HISTORY</h2>
           {leaves.length === 0 ? (
-            <div style={{ color: t.textDisabled, fontSize: '13px', textAlign: 'center', padding: '24px', border: `1px dashed ${t.borderCard}`, borderRadius: '8px', background: t.bgPage }}>
-              No leave requests
-            </div>
+            <div style={{ color: t.textDisabled, fontSize: '13px', textAlign: 'center', padding: '24px', border: `1px dashed ${t.borderCard}`, borderRadius: '8px', background: t.bgPage }}>No leave requests</div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               {leaves.map(leave => (
                 <div key={leave.id} style={{
-                  padding: '14px 16px', borderRadius: '8px',
+                  padding: isMobile ? '12px' : '14px 16px', borderRadius: '8px',
                   border: `1px solid ${leave.status === 'acknowledged' ? t.successBorder : leave.status === 'rejected' ? t.dangerBorder : t.warningBorder}`,
                   background: leave.status === 'acknowledged' ? t.successBg : leave.status === 'rejected' ? t.dangerBg : t.warningBg,
-                  display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+                  display: 'flex',
+                  flexDirection: isMobile ? 'column' : 'row',
+                  justifyContent: 'space-between',
+                  alignItems: isMobile ? 'flex-start' : 'center',
+                  gap: isMobile ? '8px' : '0'
                 }}>
                   <div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px', flexWrap: 'wrap' }}>
-                      <span style={{
-                        padding: '3px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: '700',
-                        background: `${ltc[leave.leave_type]}15`, color: ltc[leave.leave_type],
-                        border: `1px solid ${ltc[leave.leave_type]}30`
-                      }}>
-                        {leave.leave_type?.toUpperCase()}
-                      </span>
-                      <span style={{ color: t.textPrimary, fontSize: '13px', fontWeight: '600' }}>
-                        {formatDate(leave.leave_date)}
-                      </span>
+                      <span style={{ padding: '3px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: '700', background: `${ltc[leave.leave_type]}15`, color: ltc[leave.leave_type], border: `1px solid ${ltc[leave.leave_type]}30` }}>{leave.leave_type?.toUpperCase()}</span>
+                      <span style={{ color: t.textPrimary, fontSize: '13px', fontWeight: '600' }}>{formatDate(leave.leave_date)}</span>
                       {leave.filed_by_editor && (
-                        <span style={{
-                          padding: '3px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: '600',
-                          background: t.accentBg, color: t.accent, border: `1px solid ${t.accentBorder}`
-                        }}>
-                          FILED BY EDITOR
-                        </span>
+                        <span style={{ padding: '3px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: '600', background: t.accentBg, color: t.accent, border: `1px solid ${t.accentBorder}` }}>FILED BY EDITOR</span>
                       )}
                     </div>
-                    {leave.notes && (
-                      <p style={{ color: t.textMuted, fontSize: '12px', margin: 0 }}>{leave.notes}</p>
-                    )}
+                    {leave.notes && <p style={{ color: t.textMuted, fontSize: '12px', margin: 0 }}>{leave.notes}</p>}
                     {leave.status === 'rejected' && leave.reject_reason && (
-                      <p style={{ color: t.danger, fontSize: '12px', margin: '4px 0 0', fontWeight: '500' }}>
-                        Rejected: {leave.reject_reason}
-                      </p>
+                      <p style={{ color: t.danger, fontSize: '12px', margin: '4px 0 0', fontWeight: '500' }}>Rejected: {leave.reject_reason}</p>
                     )}
                   </div>
-                  <span style={{
-                    padding: '4px 12px', borderRadius: '4px', fontSize: '11px', fontWeight: '700',
-                    letterSpacing: '0.5px', whiteSpace: 'nowrap', marginLeft: '12px',
-                    background: leave.status === 'acknowledged' ? t.successBg : leave.status === 'rejected' ? t.dangerBg : t.warningBg,
-                    color: leave.status === 'acknowledged' ? t.success : leave.status === 'rejected' ? t.danger : t.warning,
-                    border: `1px solid ${leave.status === 'acknowledged' ? t.successBorder : leave.status === 'rejected' ? t.dangerBorder : t.warningBorder}`
-                  }}>
+                  <span style={{ padding: '4px 12px', borderRadius: '4px', fontSize: '11px', fontWeight: '700', letterSpacing: '0.5px', whiteSpace: 'nowrap', marginLeft: isMobile ? '0' : '12px', background: leave.status === 'acknowledged' ? t.successBg : leave.status === 'rejected' ? t.dangerBg : t.warningBg, color: leave.status === 'acknowledged' ? t.success : leave.status === 'rejected' ? t.danger : t.warning, border: `1px solid ${leave.status === 'acknowledged' ? t.successBorder : leave.status === 'rejected' ? t.dangerBorder : t.warningBorder}`, alignSelf: isMobile ? 'flex-start' : 'auto' }}>
                     {leave.status?.toUpperCase()}
                   </span>
                 </div>
@@ -481,46 +374,24 @@ export default function ReporterView() {
         {/* Leave Filing Requests from Reporter */}
         {filingRequests.length > 0 && (
           <div style={cardStyle}>
-            <h2 style={{ color: t.textPrimary, margin: '0 0 16px', fontSize: '14px', fontWeight: '700', letterSpacing: '0.5px' }}>
-              REPORTER LEAVE FILING REQUESTS
-            </h2>
+            <h2 style={{ color: t.textPrimary, margin: '0 0 16px', fontSize: '14px', fontWeight: '700', letterSpacing: '0.5px' }}>REPORTER LEAVE FILING REQUESTS</h2>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               {filingRequests.map(req => (
                 <div key={req.id} style={{
-                  padding: '14px 16px', borderRadius: '8px',
+                  padding: isMobile ? '12px' : '14px 16px', borderRadius: '8px',
                   border: `1px solid ${req.status === 'approved' ? t.successBorder : req.status === 'rejected' ? t.dangerBorder : t.warningBorder}`,
                   background: req.status === 'approved' ? t.successBg : req.status === 'rejected' ? t.dangerBg : t.warningBg
                 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', justifyContent: 'space-between', alignItems: isMobile ? 'flex-start' : 'center', gap: isMobile ? '8px' : '0' }}>
                     <div>
-                      <div style={{ display: 'flex', gap: '8px', marginBottom: '4px', alignItems: 'center' }}>
-                        <span style={{ color: t.textPrimary, fontSize: '14px', fontWeight: '700' }}>
-                          {formatDate(req.requested_date)}
-                        </span>
-                        <span style={{
-                          padding: '3px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: '600',
-                          background: `${ltc[req.leave_type]}15`, color: ltc[req.leave_type],
-                          border: `1px solid ${ltc[req.leave_type]}30`
-                        }}>
-                          {req.leave_type?.toUpperCase()}
-                        </span>
+                      <div style={{ display: 'flex', gap: '8px', marginBottom: '4px', alignItems: 'center', flexWrap: 'wrap' }}>
+                        <span style={{ color: t.textPrimary, fontSize: isMobile ? '13px' : '14px', fontWeight: '700' }}>{formatDate(req.requested_date)}</span>
+                        <span style={{ padding: '3px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: '600', background: `${ltc[req.leave_type]}15`, color: ltc[req.leave_type], border: `1px solid ${ltc[req.leave_type]}30` }}>{req.leave_type?.toUpperCase()}</span>
                       </div>
-                      <p style={{ color: t.textSecondary, fontSize: '12px', margin: 0 }}>
-                        Reason: {req.reason}
-                      </p>
-                      {req.editor_note && (
-                        <p style={{ color: t.textMuted, fontSize: '12px', margin: '4px 0 0' }}>
-                          Editor note: {req.editor_note}
-                        </p>
-                      )}
+                      <p style={{ color: t.textSecondary, fontSize: '12px', margin: 0 }}>Reason: {req.reason}</p>
+                      {req.editor_note && <p style={{ color: t.textMuted, fontSize: '12px', margin: '4px 0 0' }}>Editor note: {req.editor_note}</p>}
                     </div>
-                    <span style={{
-                      padding: '4px 12px', borderRadius: '4px', fontSize: '11px', fontWeight: '700',
-                      letterSpacing: '0.5px', whiteSpace: 'nowrap', marginLeft: '12px',
-                      background: req.status === 'approved' ? t.successBg : req.status === 'rejected' ? t.dangerBg : t.warningBg,
-                      color: req.status === 'approved' ? t.success : req.status === 'rejected' ? t.danger : t.warning,
-                      border: `1px solid ${req.status === 'approved' ? t.successBorder : req.status === 'rejected' ? t.dangerBorder : t.warningBorder}`
-                    }}>
+                    <span style={{ padding: '4px 12px', borderRadius: '4px', fontSize: '11px', fontWeight: '700', letterSpacing: '0.5px', whiteSpace: 'nowrap', marginLeft: isMobile ? '0' : '12px', background: req.status === 'approved' ? t.successBg : req.status === 'rejected' ? t.dangerBg : t.warningBg, color: req.status === 'approved' ? t.success : req.status === 'rejected' ? t.danger : t.warning, border: `1px solid ${req.status === 'approved' ? t.successBorder : req.status === 'rejected' ? t.dangerBorder : t.warningBorder}`, alignSelf: isMobile ? 'flex-start' : 'auto' }}>
                       {req.status?.toUpperCase()}
                     </span>
                   </div>
@@ -533,114 +404,43 @@ export default function ReporterView() {
 
       {/* File Leave on Behalf Modal */}
       {leaveModal && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-label="File leave on behalf of reporter"
-          style={{
-            position: 'fixed', inset: 0, background: t.overlayBg,
-            display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000
-          }}
+        <div role="dialog" aria-modal="true" aria-label="File leave on behalf of reporter"
+          style={{ position: 'fixed', inset: 0, background: t.overlayBg, display: 'flex', alignItems: isMobile ? 'flex-end' : 'center', justifyContent: 'center', zIndex: 1000 }}
           onClick={e => { if (e.target === e.currentTarget) setLeaveModal(false) }}>
-          <div style={{
-            background: t.bgCard, border: `1px solid ${t.warningBorder}`,
-            borderRadius: '12px', width: '100%', maxWidth: '440px',
-            margin: '24px', padding: '28px', fontFamily: 'inherit', boxShadow: t.shadow
-          }}>
+          <div style={{ background: t.bgCard, border: `1px solid ${t.warningBorder}`, borderRadius: isMobile ? '14px 14px 0 0' : '12px', width: '100%', maxWidth: isMobile ? '100%' : '440px', margin: isMobile ? '0' : '24px', padding: isMobile ? '20px 16px' : '28px', fontFamily: 'inherit', boxShadow: t.shadow }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '16px', alignItems: 'center' }}>
-              <h2 style={{ color: t.textPrimary, margin: 0, fontSize: '18px', fontWeight: '700' }}>
-                File Leave on Behalf
-              </h2>
-              <button
-                onClick={() => setLeaveModal(false)}
-                aria-label="Close"
-                style={{ background: 'none', border: 'none', color: t.textMuted, fontSize: '22px', cursor: 'pointer' }}>
-                x
-              </button>
+              <h2 style={{ color: t.textPrimary, margin: 0, fontSize: isMobile ? '16px' : '18px', fontWeight: '700' }}>File Leave on Behalf</h2>
+              <button onClick={() => setLeaveModal(false)} aria-label="Close" style={{ background: 'none', border: 'none', color: t.textMuted, fontSize: '22px', cursor: 'pointer', minWidth: '44px', minHeight: '44px' }}>x</button>
             </div>
-
-            <div style={{
-              padding: '12px 16px', background: t.warningBg,
-              border: `1px solid ${t.warningBorder}`, borderRadius: '8px', marginBottom: '20px'
-            }}>
+            <div style={{ padding: '12px 16px', background: t.warningBg, border: `1px solid ${t.warningBorder}`, borderRadius: '8px', marginBottom: '20px' }}>
               <p style={{ color: t.warning, fontSize: '12px', fontWeight: '500', margin: 0, lineHeight: 1.5 }}>
-                Filing leave for <span style={{ color: t.textPrimary, fontWeight: '700' }}>{reporter?.name}</span>.
-                This will be auto-approved and marked as <strong>Filed by Editor</strong>.
+                Filing leave for <span style={{ color: t.textPrimary, fontWeight: '700' }}>{reporter?.name}</span>. This will be auto-approved and marked as <strong>Filed by Editor</strong>.
               </p>
             </div>
-
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               <div>
-                <label style={{ color: t.textSecondary, fontSize: '12px', fontWeight: '600', display: 'block', marginBottom: '6px' }}>
-                  LEAVE DATE
-                </label>
-                <input
-                  type="date"
-                  value={leaveForm.leave_date}
-                  min={today}
-                  onChange={e => setLeaveForm(p => ({ ...p, leave_date: e.target.value }))}
-                  style={{ ...inputStyle, colorScheme: 'dark' }}
-                />
+                <label style={{ color: t.textSecondary, fontSize: '12px', fontWeight: '600', display: 'block', marginBottom: '6px' }}>LEAVE DATE</label>
+                <input type="date" value={leaveForm.leave_date} min={today} onChange={e => setLeaveForm(p => ({ ...p, leave_date: e.target.value }))} style={{ ...inputStyle, colorScheme: 'dark' }} />
               </div>
               <div>
-                <label style={{ color: t.textSecondary, fontSize: '12px', fontWeight: '600', display: 'block', marginBottom: '8px' }}>
-                  LEAVE TYPE
-                </label>
+                <label style={{ color: t.textSecondary, fontSize: '12px', fontWeight: '600', display: 'block', marginBottom: '8px' }}>LEAVE TYPE</label>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '8px' }} role="group">
                   {(['planned', 'sick', 'emergency'] as const).map(type => (
-                    <button
-                      key={type}
-                      aria-pressed={leaveForm.leave_type === type}
-                      onClick={() => setLeaveForm(p => ({ ...p, leave_type: type }))}
-                      style={{
-                        padding: '10px', borderRadius: '8px',
-                        border: `2px solid ${leaveForm.leave_type === type ? ltc[type] : t.borderCard}`,
-                        background: leaveForm.leave_type === type ? `${ltc[type]}15` : 'transparent',
-                        color: leaveForm.leave_type === type ? ltc[type] : t.textMuted,
-                        fontSize: '11px', fontWeight: leaveForm.leave_type === type ? '700' : '400',
-                        cursor: 'pointer', fontFamily: 'inherit',
-                        textTransform: 'uppercase' as const, transition: 'all 0.15s'
-                      }}>
+                    <button key={type} aria-pressed={leaveForm.leave_type === type} onClick={() => setLeaveForm(p => ({ ...p, leave_type: type }))}
+                      style={{ padding: '10px', borderRadius: '8px', border: `2px solid ${leaveForm.leave_type === type ? ltc[type] : t.borderCard}`, background: leaveForm.leave_type === type ? `${ltc[type]}15` : 'transparent', color: leaveForm.leave_type === type ? ltc[type] : t.textMuted, fontSize: '11px', fontWeight: leaveForm.leave_type === type ? '700' : '400', cursor: 'pointer', fontFamily: 'inherit', textTransform: 'uppercase' as const, transition: 'all 0.15s', minHeight: '44px' }}>
                       {type}
                     </button>
                   ))}
                 </div>
               </div>
               <div>
-                <label style={{ color: t.textSecondary, fontSize: '12px', fontWeight: '600', display: 'block', marginBottom: '6px' }}>
-                  NOTES <span style={{ color: t.textMuted, fontWeight: '400' }}>(optional)</span>
-                </label>
-                <textarea
-                  value={leaveForm.notes}
-                  onChange={e => setLeaveForm(p => ({ ...p, notes: e.target.value }))}
-                  rows={3}
-                  placeholder="Reason for filing on behalf..."
-                  style={{ ...inputStyle, resize: 'none' as const }}
-                />
+                <label style={{ color: t.textSecondary, fontSize: '12px', fontWeight: '600', display: 'block', marginBottom: '6px' }}>NOTES <span style={{ color: t.textMuted, fontWeight: '400' }}>(optional)</span></label>
+                <textarea value={leaveForm.notes} onChange={e => setLeaveForm(p => ({ ...p, notes: e.target.value }))} rows={3} placeholder="Reason for filing on behalf..." style={{ ...inputStyle, resize: 'none' as const }} />
               </div>
               <div style={{ display: 'flex', gap: '8px' }}>
-                <button
-                  onClick={() => setLeaveModal(false)}
-                  style={{
-                    flex: 1, padding: '12px', background: 'transparent',
-                    border: `1px solid ${t.borderCard}`, borderRadius: '8px',
-                    color: t.textMuted, fontSize: '13px', cursor: 'pointer', fontFamily: 'inherit'
-                  }}>
-                  CANCEL
-                </button>
-                <button
-                  onClick={fileLeaveOnBehalf}
-                  disabled={!leaveForm.leave_date || submitting}
-                  style={{
-                    flex: 2, padding: '12px',
-                    background: leaveForm.leave_date ? t.warning : t.bgInput,
-                    border: `1px solid ${leaveForm.leave_date ? t.warningBorder : t.borderCard}`,
-                    borderRadius: '8px',
-                    color: leaveForm.leave_date ? t.accentText : t.textDisabled,
-                    fontSize: '13px', fontWeight: '700',
-                    cursor: leaveForm.leave_date ? 'pointer' : 'not-allowed',
-                    fontFamily: 'inherit', opacity: submitting ? 0.6 : 1
-                  }}>
+                <button onClick={() => setLeaveModal(false)} style={{ flex: 1, padding: '12px', background: 'transparent', border: `1px solid ${t.borderCard}`, borderRadius: '8px', color: t.textMuted, fontSize: '13px', cursor: 'pointer', fontFamily: 'inherit', minHeight: '48px' }}>CANCEL</button>
+                <button onClick={fileLeaveOnBehalf} disabled={!leaveForm.leave_date || submitting}
+                  style={{ flex: 2, padding: '12px', background: leaveForm.leave_date ? t.warning : t.bgInput, border: `1px solid ${leaveForm.leave_date ? t.warningBorder : t.borderCard}`, borderRadius: '8px', color: leaveForm.leave_date ? t.accentText : t.textDisabled, fontSize: '13px', fontWeight: '700', cursor: leaveForm.leave_date ? 'pointer' : 'not-allowed', fontFamily: 'inherit', opacity: submitting ? 0.6 : 1, minHeight: '48px' }}>
                   {submitting ? 'FILING...' : 'FILE LEAVE ON BEHALF'}
                 </button>
               </div>
@@ -651,6 +451,3 @@ export default function ReporterView() {
     </div>
   )
 }
-
-
-
