@@ -67,26 +67,16 @@ export default function CalendarPage() {
   }
 
   useEffect(() => { loadHolidays() }, [])
-
-  useEffect(() => {
-    if (role === 'reporter' && reporterId) load(reporterId)
-  }, [reporterId, role])
-
+  useEffect(() => { if (role === 'reporter' && reporterId) load(reporterId) }, [reporterId, role])
   useEffect(() => {
     if (role === 'editor') {
       supabase.from('reporters').select('id, name, email, beats').eq('status', 'active').then(({ data }) => {
         setReporters(data || [])
-        if (data && data.length > 0 && !selectedReporter) {
-          setSelectedReporter(data[0].id)
-          load(data[0].id)
-        }
+        if (data && data.length > 0 && !selectedReporter) { setSelectedReporter(data[0].id); load(data[0].id) }
       })
     }
   }, [role])
-
-  useEffect(() => {
-    if (role === 'editor' && selectedReporter) load(selectedReporter)
-  }, [selectedReporter])
+  useEffect(() => { if (role === 'editor' && selectedReporter) load(selectedReporter) }, [selectedReporter])
 
   function getWeekStart(dateStr: string): string {
     const d = new Date(dateStr + 'T00:00:00')
@@ -114,7 +104,8 @@ export default function CalendarPage() {
   }
 
   function getStoriesDeadlineOnDate(dateStr: string): any[] {
-    return assignments.filter(a => a.stories?.deadline === dateStr).map(a => ({ ...a.stories, assigned_at: getAssignedDate(a) })).filter(s => s.id)
+    return assignments.filter(a => a.stories?.deadline === dateStr)
+      .map(a => ({ ...a.stories, assigned_at: getAssignedDate(a) })).filter(s => s.id)
   }
 
   function getStoriesActiveOnDate(dateStr: string): any[] {
@@ -146,8 +137,12 @@ export default function CalendarPage() {
     const firstDay = new Date(year, month, 1)
     const lastDay = new Date(year, month + 1, 0)
     const days: (string | null)[] = []
-    let startDow = firstDay.getDay() - 1
-    if (startDow < 0) startDow = 6
+    // Sunday = 0, so no adjustment needed — grid starts Sunday
+    const startDow = isMobile ? firstDay.getDay() : (() => {
+      let s = firstDay.getDay() - 1
+      if (s < 0) s = 6
+      return s
+    })()
     for (let i = 0; i < startDow; i++) days.push(null)
     for (let d = 1; d <= lastDay.getDate(); d++) {
       days.push(`${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`)
@@ -225,29 +220,16 @@ export default function CalendarPage() {
   return (
     <div style={{ minHeight: '100vh', background: t.bgPage, fontFamily: '"Inter", "DM Mono", "Courier New", monospace', color: t.textPrimary }}>
       <Navbar />
-      <main role="main" style={{
-        padding: isMobile ? '16px 10px' : isTablet ? '24px 16px' : '32px 24px',
-        maxWidth: isMobile ? '100%' : '1100px',
-        margin: '0 auto'
-      }}>
+      <main role="main" style={{ padding: isMobile ? '16px 12px' : isTablet ? '24px 16px' : '32px 24px', maxWidth: isMobile ? '100%' : '1100px', margin: '0 auto' }}>
 
         {/* Header */}
-        <div style={{
-          display: 'flex',
-          flexDirection: isMobile ? 'column' : 'row',
-          justifyContent: 'space-between',
-          alignItems: isMobile ? 'flex-start' : 'flex-start',
-          marginBottom: isMobile ? '16px' : '24px',
-          gap: '12px'
-        }}>
+        <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: isMobile ? '16px' : '24px', gap: '12px' }}>
           <div>
             <h1 style={{ color: t.textPrimary, margin: '0 0 6px', fontSize: isMobile ? '18px' : '22px', fontWeight: '700' }}>
               {role === 'editor' ? 'Reporter Calendar' : 'My Calendar'}
             </h1>
             <p style={{ color: t.textMuted, margin: 0, fontSize: '13px' }}>
-              {role === 'reporter'
-                ? 'View your story deadlines, leaves and availability. Click any future date to apply for leave.'
-                : 'View reporter story deadlines, leaves and availability.'}
+              {role === 'reporter' ? 'View your story deadlines, leaves and availability. Tap any future date to apply for leave.' : 'View reporter story deadlines, leaves and availability.'}
             </p>
           </div>
           {role === 'editor' && (
@@ -259,161 +241,281 @@ export default function CalendarPage() {
         </div>
 
         {/* Legend */}
-        <div style={{ display: 'flex', gap: '10px', marginBottom: isMobile ? '14px' : '24px', flexWrap: 'wrap', padding: isMobile ? '10px 12px' : '14px 18px', background: t.bgCard, borderRadius: '10px', border: `1px solid ${t.borderCard}`, boxShadow: t.shadowCard }}>
-          {legend.map(item => (
-            <div key={item.label} style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-              <div style={{ width: '12px', height: '12px', borderRadius: '3px', background: `${item.color}20`, border: `2px solid ${item.border}` }} />
-              <span style={{ color: t.textMuted, fontSize: isMobile ? '10px' : '11px', fontWeight: '500' }}>{item.label}</span>
+        {isMobile ? (
+          <div style={{ marginBottom: '14px', padding: '12px', background: t.bgCard, borderRadius: '10px', border: `1px solid ${t.borderCard}`, boxShadow: t.shadowCard }}>
+            <p style={{ color: t.textMuted, fontSize: '10px', fontWeight: '700', letterSpacing: '0.8px', margin: '0 0 10px' }}>LEGEND</p>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px' }}>
+              {legend.map(item => (
+                <div key={item.label} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: `${item.color}30`, border: `1.5px solid ${item.color}`, flexShrink: 0 }} />
+                  <span style={{ color: t.textMuted, fontSize: '10px', fontWeight: '500', lineHeight: 1.2 }}>{item.label}</span>
+                </div>
+              ))}
             </div>
-          ))}
-          {!isMobile && ['breaking', 'high', 'normal', 'low'].map(u => (
-            <div key={u} style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-              <div style={{ width: '10px', height: '10px', borderRadius: '2px', background: urgencyColor[u] }} />
-              <span style={{ color: t.textMuted, fontSize: '11px', fontWeight: '500' }}>{u} story</span>
-            </div>
-          ))}
-        </div>
-
-        {/* Calendar */}
-        <div style={{ ...cardStyle, marginBottom: '20px' }}>
-
-          {/* Month navigation */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-            <button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1))}
-              style={{ padding: isMobile ? '8px 12px' : '8px 18px', background: t.bgInput, border: `1px solid ${t.borderCard}`, borderRadius: '8px', color: t.textSecondary, fontSize: '12px', fontWeight: '600', cursor: 'pointer', fontFamily: 'inherit', minHeight: '44px' }}>
-              PREV
-            </button>
-            <div style={{ textAlign: 'center' }}>
-              <div style={{ color: t.textPrimary, fontSize: isMobile ? '13px' : '17px', fontWeight: '700', letterSpacing: '1px' }}>
-                {monthName.toUpperCase()}
-              </div>
-              <div style={{ color: t.textMuted, fontSize: '11px', marginTop: '2px' }}>
-                {role === 'reporter' ? 'Your calendar' : reporters.find(r => r.id === selectedReporter)?.name || ''}
-              </div>
-            </div>
-            <button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1))}
-              style={{ padding: isMobile ? '8px 12px' : '8px 18px', background: t.bgInput, border: `1px solid ${t.borderCard}`, borderRadius: '8px', color: t.textSecondary, fontSize: '12px', fontWeight: '600', cursor: 'pointer', fontFamily: 'inherit', minHeight: '44px' }}>
-              NEXT
-            </button>
           </div>
-
-          {/* Day headers */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: isMobile ? '2px' : '4px', marginBottom: '6px' }}>
-            {(isMobile
-              ? ['M', 'T', 'W', 'T', 'F', 'S', 'S']
-              : ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN']
-            ).map((d, i) => (
-              <div key={i} style={{ textAlign: 'center', color: i >= 5 ? t.textDisabled : t.textMuted, fontSize: isMobile ? '9px' : '10px', letterSpacing: '1px', padding: '4px 0', fontWeight: '700' }}>
-                {d}
+        ) : (
+          <div style={{ display: 'flex', gap: '10px', marginBottom: '24px', flexWrap: 'wrap', padding: '14px 18px', background: t.bgCard, borderRadius: '10px', border: `1px solid ${t.borderCard}`, boxShadow: t.shadowCard }}>
+            {legend.map(item => (
+              <div key={item.label} style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                <div style={{ width: '12px', height: '12px', borderRadius: '3px', background: `${item.color}20`, border: `2px solid ${item.border}` }} />
+                <span style={{ color: t.textMuted, fontSize: '11px', fontWeight: '500' }}>{item.label}</span>
+              </div>
+            ))}
+            {['breaking', 'high', 'normal', 'low'].map(u => (
+              <div key={u} style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                <div style={{ width: '10px', height: '10px', borderRadius: '2px', background: urgencyColor[u] }} />
+                <span style={{ color: t.textMuted, fontSize: '11px', fontWeight: '500' }}>{u} story</span>
               </div>
             ))}
           </div>
+        )}
 
-          {/* Calendar grid */}
-          {loading ? (
-            <div style={{ color: t.textMuted, textAlign: 'center', padding: '60px', fontSize: '14px' }}>Loading calendar...</div>
-          ) : (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: isMobile ? '2px' : '4px' }}>
-              {days.map((dateStr, i) => {
-                if (!dateStr) return <div key={`empty-${i}`} style={{ minHeight: isMobile ? '44px' : '80px' }} />
-                const status = getDateStatus(dateStr)
-                const { bg, border, color } = getDayBg(status)
-                const dayNum = parseInt(dateStr.split('-')[2])
-                const storiesDeadline = getStoriesDeadlineOnDate(dateStr)
-                const storiesActive = getStoriesActiveOnDate(dateStr)
-                const allStories = [...storiesDeadline, ...storiesActive.filter(s => !storiesDeadline.find(d => d.id === s.id))]
-                const hasStories = allStories.length > 0
-                const isDeadlineDay = storiesDeadline.length > 0
+        {/* Calendar Card */}
+        <div style={{ ...cardStyle, marginBottom: '20px', padding: isMobile ? '14px 10px' : '20px' }}>
 
-                return (
-                  <div key={dateStr} role="button" tabIndex={0}
-                    onClick={() => handleDayClick(dateStr)}
-                    onKeyDown={e => e.key === 'Enter' && handleDayClick(dateStr)}
-                    style={{
-                      minHeight: isMobile ? (hasStories ? '60px' : '44px') : (hasStories ? '120px' : '80px'),
-                      borderRadius: isMobile ? '4px' : '8px',
-                      border: `${isMobile ? '1px' : '2px'} solid ${isDeadlineDay ? urgencyColor[storiesDeadline[0]?.urgency] || t.accent : border}`,
-                      background: bg, cursor: 'pointer',
-                      padding: isMobile ? '3px' : '6px',
-                      display: 'flex', flexDirection: 'column', gap: '2px',
-                      transition: 'all 0.15s',
-                      outline: status.isToday ? `2px solid ${t.accent}` : 'none',
-                      outlineOffset: '1px', overflow: 'hidden',
-                    }}>
-
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                      <span style={{ fontSize: isMobile ? '11px' : '13px', fontWeight: '700', color, lineHeight: 1 }}>{dayNum}</span>
-                      {!isMobile && (
-                        <>
-                          {status.holiday && <span style={{ fontSize: '7px', fontWeight: '700', color: t.danger }}>HOL</span>}
-                          {status.leave?.status === 'acknowledged' && <span style={{ fontSize: '7px', fontWeight: '700', color: t.warning }}>LEAVE</span>}
-                          {status.leave?.status === 'pending' && <span style={{ fontSize: '7px', fontWeight: '700', color: t.accent }}>PEND</span>}
-                          {!status.holiday && !status.leave && !status.isWeekend && !status.isPast && status.isAvailable && !hasStories && (
-                            <span style={{ fontSize: '7px', fontWeight: '600', color: t.success }}>AVAIL</span>
-                          )}
-                        </>
-                      )}
-                    </div>
-
-                    {!isMobile && status.holiday && (
-                      <div style={{ fontSize: '8px', color: t.danger, fontWeight: '600', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {status.holiday.name}
-                      </div>
-                    )}
-
-                    {/* Story dots on mobile, cards on desktop */}
-                    {isMobile ? (
-                      hasStories && (
-                        <div style={{ display: 'flex', gap: '2px', flexWrap: 'wrap' }}>
-                          {allStories.slice(0, 3).map((story: any) => (
-                            <div key={story.id} style={{ width: '6px', height: '6px', borderRadius: '50%', background: urgencyColor[story.urgency] || t.accent }} />
-                          ))}
-                        </div>
-                      )
-                    ) : (
-                      allStories.slice(0, 2).map((story: any) => {
-                        const isDeadline = storiesDeadline.find(s => s.id === story.id)
-                        const uc = urgencyColor[story.urgency] || t.accent
-                        return (
-                          <div key={story.id} style={{ background: `${uc}15`, border: `1px solid ${uc}40`, borderLeft: `3px solid ${uc}`, borderRadius: '4px', padding: '3px 5px' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2px' }}>
-                              <span style={{ fontSize: '7px', fontWeight: '700', color: uc, textTransform: 'uppercase' as const }}>{story.urgency}</span>
-                              {isDeadline && <span style={{ fontSize: '7px', fontWeight: '700', color: t.danger, background: `${t.danger}15`, padding: '1px 3px', borderRadius: '2px' }}>DUE</span>}
-                            </div>
-                            <div style={{ fontSize: '9px', fontWeight: '600', color: t.textPrimary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{story.headline}</div>
-                            <div style={{ fontSize: '8px', color: t.textMuted, marginTop: '2px' }}>{story.assigned_at} → {formatDate(story.deadline)}</div>
-                          </div>
-                        )
-                      })
-                    )}
-
-                    {!isMobile && allStories.length > 2 && (
-                      <div style={{ fontSize: '8px', color: t.accent, fontWeight: '700', textAlign: 'center' }}>+{allStories.length - 2} more</div>
-                    )}
+          {/* Month navigation */}
+          {isMobile ? (
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1))}
+                style={{ width: '36px', height: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'transparent', border: 'none', color: t.textSecondary, fontSize: '22px', cursor: 'pointer', fontFamily: 'inherit', borderRadius: '50%' }}>
+                ‹
+              </button>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ color: t.textPrimary, fontSize: '16px', fontWeight: '600' }}>
+                  {currentMonth.toLocaleString('default', { month: 'long', year: 'numeric' })}
+                </div>
+                {role === 'editor' && reporters.find(r => r.id === selectedReporter) && (
+                  <div style={{ color: t.textMuted, fontSize: '11px', marginTop: '2px' }}>
+                    {reporters.find(r => r.id === selectedReporter)?.name}
                   </div>
-                )
-              })}
+                )}
+              </div>
+              <button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1))}
+                style={{ width: '36px', height: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'transparent', border: 'none', color: t.textSecondary, fontSize: '22px', cursor: 'pointer', fontFamily: 'inherit', borderRadius: '50%' }}>
+                ›
+              </button>
             </div>
+          ) : (
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1))}
+                style={{ padding: '8px 18px', background: t.bgInput, border: `1px solid ${t.borderCard}`, borderRadius: '8px', color: t.textSecondary, fontSize: '12px', fontWeight: '600', cursor: 'pointer', fontFamily: 'inherit', minHeight: '44px' }}>
+                PREV
+              </button>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ color: t.textPrimary, fontSize: '17px', fontWeight: '700', letterSpacing: '1px' }}>{monthName.toUpperCase()}</div>
+                <div style={{ color: t.textMuted, fontSize: '11px', marginTop: '2px' }}>
+                  {role === 'reporter' ? 'Your calendar' : reporters.find(r => r.id === selectedReporter)?.name || ''}
+                </div>
+              </div>
+              <button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1))}
+                style={{ padding: '8px 18px', background: t.bgInput, border: `1px solid ${t.borderCard}`, borderRadius: '8px', color: t.textSecondary, fontSize: '12px', fontWeight: '600', cursor: 'pointer', fontFamily: 'inherit', minHeight: '44px' }}>
+                NEXT
+              </button>
+            </div>
+          )}
+
+          {/* ── MOBILE: Google Calendar style ── */}
+          {isMobile ? (
+            loading ? (
+              <div style={{ color: t.textMuted, textAlign: 'center', padding: '40px', fontSize: '14px' }}>Loading calendar...</div>
+            ) : (
+              <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
+                <thead>
+                  <tr>
+                    {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d, i) => (
+                      <th key={i} style={{
+                        textAlign: 'center',
+                        padding: '0 0 10px 0',
+                        color: i === 0 || i === 6 ? t.danger : t.textMuted,
+                        fontSize: '11px',
+                        fontWeight: '600',
+                        width: '14.28%',
+                      }}>
+                        {d}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {(() => {
+                    // Build rows of 7
+                    const rows: (string | null)[][] = []
+                    let row: (string | null)[] = []
+                    days.forEach((d, i) => {
+                      row.push(d)
+                      if (row.length === 7) { rows.push(row); row = [] }
+                    })
+                    if (row.length > 0) {
+                      while (row.length < 7) row.push(null)
+                      rows.push(row)
+                    }
+                    return rows.map((week, wi) => (
+                      <tr key={wi}>
+                        {week.map((dateStr, di) => {
+                          if (!dateStr) return <td key={di} style={{ height: '52px' }} />
+
+                          const status = getDateStatus(dateStr)
+                          const dayNum = parseInt(dateStr.split('-')[2])
+                          const storiesDeadline = getStoriesDeadlineOnDate(dateStr)
+                          const storiesActive = getStoriesActiveOnDate(dateStr)
+                          const allStories = [...storiesDeadline, ...storiesActive.filter(s => !storiesDeadline.find(d => d.id === s.id))]
+                          const hasStories = allStories.length > 0
+                          const isDeadlineDay = storiesDeadline.length > 0
+                          const isWeekendCol = di === 0 || di === 6
+
+                          let numColor = t.textPrimary
+                          if (status.isToday) numColor = '#fff'
+                          else if (status.holiday) numColor = t.danger
+                          else if (status.leave?.status === 'acknowledged') numColor = t.warning
+                          else if (status.leave?.status === 'pending') numColor = t.accent
+                          else if (isWeekendCol) numColor = t.danger
+                          else if (status.isPast) numColor = t.textMuted
+
+                          const dots: string[] = []
+                          if (status.holiday) dots.push(t.danger)
+                          else if (status.leave?.status === 'acknowledged') dots.push(t.warning)
+                          else if (status.leave?.status === 'pending') dots.push(t.accent)
+                          allStories.slice(0, 2).forEach((s: any) => dots.push(urgencyColor[s.urgency] || t.accent))
+
+                          return (
+                            <td key={di}
+                              onClick={() => handleDayClick(dateStr)}
+                              style={{
+                                height: '52px',
+                                textAlign: 'center',
+                                verticalAlign: 'middle',
+                                cursor: 'pointer',
+                                padding: '2px 0',
+                              }}>
+                              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px' }}>
+                                {/* Date circle */}
+                                <div style={{
+                                  width: '30px',
+                                  height: '30px',
+                                  borderRadius: '50%',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  background: status.isToday
+                                    ? t.accent
+                                    : status.holiday
+                                    ? `${t.danger}18`
+                                    : status.leave?.status === 'acknowledged'
+                                    ? `${t.warning}18`
+                                    : status.leave?.status === 'pending'
+                                    ? `${t.accent}18`
+                                    : 'transparent',
+                                  boxShadow: isDeadlineDay && !status.isToday
+                                    ? `0 0 0 2px ${urgencyColor[storiesDeadline[0]?.urgency] || t.danger}`
+                                    : 'none',
+                                }}>
+                                  <span style={{
+                                    fontSize: '13px',
+                                    fontWeight: status.isToday ? '700' : '400',
+                                    color: numColor,
+                                    opacity: status.isPast && !status.holiday && !status.leave ? 0.38 : 1,
+                                    lineHeight: 1,
+                                  }}>
+                                    {dayNum}
+                                  </span>
+                                </div>
+                                {/* Dots */}
+                                {dots.length > 0 && (
+                                  <div style={{ display: 'flex', gap: '2px', justifyContent: 'center' }}>
+                                    {dots.slice(0, 3).map((c, idx) => (
+                                      <div key={idx} style={{ width: '4px', height: '4px', borderRadius: '50%', background: c }} />
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            </td>
+                          )
+                        })}
+                      </tr>
+                    ))
+                  })()}
+                </tbody>
+              </table>
+            )
+          ) : (
+            // ── DESKTOP: Completely unchanged ──
+            <>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '4px', marginBottom: '6px' }}>
+                {['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'].map((d, i) => (
+                  <div key={i} style={{ textAlign: 'center', color: i >= 5 ? t.textDisabled : t.textMuted, fontSize: '10px', letterSpacing: '1px', padding: '4px 0', fontWeight: '700' }}>
+                    {d}
+                  </div>
+                ))}
+              </div>
+              {loading ? (
+                <div style={{ color: t.textMuted, textAlign: 'center', padding: '60px', fontSize: '14px' }}>Loading calendar...</div>
+              ) : (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '4px' }}>
+                  {days.map((dateStr, i) => {
+                    if (!dateStr) return <div key={`empty-${i}`} style={{ minHeight: '80px' }} />
+                    const status = getDateStatus(dateStr)
+                    const { bg, border, color } = getDayBg(status)
+                    const dayNum = parseInt(dateStr.split('-')[2])
+                    const storiesDeadline = getStoriesDeadlineOnDate(dateStr)
+                    const storiesActive = getStoriesActiveOnDate(dateStr)
+                    const allStories = [...storiesDeadline, ...storiesActive.filter(s => !storiesDeadline.find(d => d.id === s.id))]
+                    const hasStories = allStories.length > 0
+                    const isDeadlineDay = storiesDeadline.length > 0
+                    return (
+                      <div key={dateStr} role="button" tabIndex={0}
+                        onClick={() => handleDayClick(dateStr)}
+                        onKeyDown={e => e.key === 'Enter' && handleDayClick(dateStr)}
+                        style={{ minHeight: hasStories ? '120px' : '80px', borderRadius: '8px', border: `2px solid ${isDeadlineDay ? urgencyColor[storiesDeadline[0]?.urgency] || t.accent : border}`, background: bg, cursor: 'pointer', padding: '6px', display: 'flex', flexDirection: 'column', gap: '2px', transition: 'all 0.15s', outline: status.isToday ? `2px solid ${t.accent}` : 'none', outlineOffset: '1px', overflow: 'hidden' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                          <span style={{ fontSize: '13px', fontWeight: '700', color, lineHeight: 1 }}>{dayNum}</span>
+                          <>
+                            {status.holiday && <span style={{ fontSize: '7px', fontWeight: '700', color: t.danger }}>HOL</span>}
+                            {status.leave?.status === 'acknowledged' && <span style={{ fontSize: '7px', fontWeight: '700', color: t.warning }}>LEAVE</span>}
+                            {status.leave?.status === 'pending' && <span style={{ fontSize: '7px', fontWeight: '700', color: t.accent }}>PEND</span>}
+                            {!status.holiday && !status.leave && !status.isWeekend && !status.isPast && status.isAvailable && !hasStories && (
+                              <span style={{ fontSize: '7px', fontWeight: '600', color: t.success }}>AVAIL</span>
+                            )}
+                          </>
+                        </div>
+                        {status.holiday && (
+                          <div style={{ fontSize: '8px', color: t.danger, fontWeight: '600', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{status.holiday.name}</div>
+                        )}
+                        {allStories.slice(0, 2).map((story: any) => {
+                          const isDeadline = storiesDeadline.find(s => s.id === story.id)
+                          const uc = urgencyColor[story.urgency] || t.accent
+                          return (
+                            <div key={story.id} style={{ background: `${uc}15`, border: `1px solid ${uc}40`, borderLeft: `3px solid ${uc}`, borderRadius: '4px', padding: '3px 5px' }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2px' }}>
+                                <span style={{ fontSize: '7px', fontWeight: '700', color: uc, textTransform: 'uppercase' as const }}>{story.urgency}</span>
+                                {isDeadline && <span style={{ fontSize: '7px', fontWeight: '700', color: t.danger, background: `${t.danger}15`, padding: '1px 3px', borderRadius: '2px' }}>DUE</span>}
+                              </div>
+                              <div style={{ fontSize: '9px', fontWeight: '600', color: t.textPrimary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{story.headline}</div>
+                              <div style={{ fontSize: '8px', color: t.textMuted, marginTop: '2px' }}>{story.assigned_at} → {formatDate(story.deadline)}</div>
+                            </div>
+                          )
+                        })}
+                        {allStories.length > 2 && <div style={{ fontSize: '8px', color: t.accent, fontWeight: '700', textAlign: 'center' }}>+{allStories.length - 2} more</div>}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </>
           )}
         </div>
 
         {/* Stats */}
         {!loading && (
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)',
-            gap: isMobile ? '8px' : '12px',
-            marginBottom: '24px'
-          }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)', gap: isMobile ? '10px' : '12px', marginBottom: '24px' }}>
             {[
               { label: 'Holidays This Year', value: holidays.length, color: t.danger, bg: t.dangerBg, border: t.dangerBorder },
               { label: 'Leaves Pending', value: leaves.filter(l => l.status === 'pending' && l.leave_date >= today).length, color: t.accent, bg: t.accentBg, border: t.accentBorder },
               { label: 'Leaves Approved', value: leaves.filter(l => l.status === 'acknowledged' && l.leave_date >= today).length, color: t.warning, bg: t.warningBg, border: t.warningBorder },
               { label: 'Active Stories', value: assignments.length, color: '#a78bfa', bg: 'rgba(167,139,250,0.1)', border: 'rgba(167,139,250,0.3)' },
             ].map(stat => (
-              <div key={stat.label} style={{ padding: isMobile ? '14px 10px' : '18px', background: stat.bg, border: `1px solid ${stat.border}`, borderRadius: '10px', textAlign: 'center', boxShadow: t.shadowCard }}>
-                <div style={{ color: stat.color, fontSize: isMobile ? '22px' : '28px', fontWeight: '800', marginBottom: '6px', lineHeight: 1 }}>{stat.value}</div>
-                <div style={{ color: t.textMuted, fontSize: isMobile ? '9px' : '11px', fontWeight: '600', letterSpacing: '0.5px' }}>{stat.label.toUpperCase()}</div>
+              <div key={stat.label} style={{ padding: isMobile ? '16px 12px' : '18px', background: stat.bg, border: `1px solid ${stat.border}`, borderRadius: '10px', textAlign: 'center', boxShadow: t.shadowCard }}>
+                <div style={{ color: stat.color, fontSize: '28px', fontWeight: '800', marginBottom: '6px', lineHeight: 1 }}>{stat.value}</div>
+                <div style={{ color: t.textMuted, fontSize: isMobile ? '10px' : '11px', fontWeight: '600', letterSpacing: '0.5px' }}>{stat.label.toUpperCase()}</div>
               </div>
             ))}
           </div>
@@ -422,8 +524,18 @@ export default function CalendarPage() {
         {/* Upcoming Story Deadlines */}
         {assignments.filter(a => a.stories?.deadline >= today).length > 0 && (
           <div style={{ ...cardStyle, marginBottom: '20px' }}>
-            <h2 style={{ color: t.textPrimary, margin: '0 0 16px', fontSize: '14px', fontWeight: '700', letterSpacing: '0.5px' }}>UPCOMING STORY DEADLINES</h2>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            {isMobile ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px', paddingBottom: '12px', borderBottom: `1px solid ${t.borderCard}` }}>
+                <div style={{ width: '3px', height: '16px', borderRadius: '2px', background: t.accent, flexShrink: 0 }} />
+                <h2 style={{ color: t.textPrimary, margin: 0, fontSize: '13px', fontWeight: '700', letterSpacing: '0.5px' }}>UPCOMING DEADLINES</h2>
+                <span style={{ marginLeft: 'auto', padding: '2px 8px', borderRadius: '10px', background: t.accentBg, border: `1px solid ${t.accentBorder}`, color: t.accent, fontSize: '11px', fontWeight: '700' }}>
+                  {assignments.filter(a => a.stories?.deadline >= today).length}
+                </span>
+              </div>
+            ) : (
+              <h2 style={{ color: t.textPrimary, margin: '0 0 16px', fontSize: '14px', fontWeight: '700', letterSpacing: '0.5px' }}>UPCOMING STORY DEADLINES</h2>
+            )}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: isMobile ? '8px' : '10px' }}>
               {assignments.filter(a => a.stories?.deadline >= today)
                 .sort((a, b) => a.stories?.deadline?.localeCompare(b.stories?.deadline))
                 .map(a => {
@@ -433,33 +545,57 @@ export default function CalendarPage() {
                   const uc = urgencyColor[story.urgency] || t.accent
                   return (
                     <div key={a.id} style={{ padding: isMobile ? '12px' : '16px', borderRadius: '8px', border: `1px solid ${uc}30`, background: `${uc}08`, borderLeft: `4px solid ${uc}` }}>
-                      <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', justifyContent: 'space-between', alignItems: isMobile ? 'flex-start' : 'flex-start', gap: '12px' }}>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', flexWrap: 'wrap' }}>
-                            <span style={{ padding: '3px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: '700', background: `${uc}20`, color: uc, border: `1px solid ${uc}40` }}>{story.urgency?.toUpperCase()}</span>
-                            <span style={{ padding: '3px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: '600', background: `${statusColor[story.status]}15`, color: statusColor[story.status] }}>{story.status?.replace('_', ' ').toUpperCase()}</span>
-                            <span style={{ color: t.textMuted, fontSize: '12px' }}>{story.category}</span>
-                          </div>
-                          <div style={{ color: t.textPrimary, fontSize: isMobile ? '13px' : '15px', fontWeight: '700', marginBottom: '10px', lineHeight: 1.4 }}>{story.headline}</div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '5px 10px', background: t.bgCard, border: `1px solid ${t.borderCard}`, borderRadius: '6px' }}>
-                              <span style={{ color: t.textMuted, fontSize: '11px', fontWeight: '600' }}>ASSIGNED</span>
-                              <span style={{ color: t.textSecondary, fontSize: '12px', fontWeight: '700' }}>{formatDate(startDate)}</span>
+                      {isMobile ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', flex: 1, minWidth: 0 }}>
+                              <span style={{ padding: '2px 7px', borderRadius: '4px', fontSize: '9px', fontWeight: '700', background: `${uc}20`, color: uc, border: `1px solid ${uc}40`, whiteSpace: 'nowrap' }}>{story.urgency?.toUpperCase()}</span>
+                              <span style={{ padding: '2px 7px', borderRadius: '4px', fontSize: '9px', fontWeight: '600', background: `${statusColor[story.status]}15`, color: statusColor[story.status], whiteSpace: 'nowrap' }}>{story.status?.replace('_', ' ').toUpperCase()}</span>
                             </div>
-                            <span style={{ color: t.textMuted, fontSize: '16px' }}>→</span>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '5px 10px', background: daysLeft <= 1 ? t.dangerBg : daysLeft <= 3 ? t.warningBg : t.accentBg, border: `1px solid ${daysLeft <= 1 ? t.dangerBorder : daysLeft <= 3 ? t.warningBorder : t.accentBorder}`, borderRadius: '6px' }}>
-                              <span style={{ color: t.textMuted, fontSize: '11px', fontWeight: '600' }}>DEADLINE</span>
-                              <span style={{ color: daysLeft <= 1 ? t.danger : daysLeft <= 3 ? t.warning : t.accent, fontSize: '12px', fontWeight: '700' }}>{formatDate(story.deadline)}</span>
+                            <div style={{ padding: '6px 10px', borderRadius: '6px', textAlign: 'center', flexShrink: 0, background: daysLeft <= 1 ? t.dangerBg : daysLeft <= 3 ? t.warningBg : t.accentBg, border: `1px solid ${daysLeft <= 1 ? t.dangerBorder : daysLeft <= 3 ? t.warningBorder : t.accentBorder}` }}>
+                              <div style={{ color: daysLeft <= 1 ? t.danger : daysLeft <= 3 ? t.warning : t.accent, fontSize: '16px', fontWeight: '800', lineHeight: 1 }}>
+                                {daysLeft === 0 ? 'TODAY' : daysLeft < 0 ? 'LATE' : daysLeft}
+                              </div>
+                              {daysLeft > 0 && <div style={{ color: t.textMuted, fontSize: '9px', fontWeight: '600', marginTop: '1px' }}>{daysLeft === 1 ? 'DAY' : 'DAYS'}</div>}
                             </div>
                           </div>
-                        </div>
-                        <div style={{ padding: isMobile ? '8px 14px' : '10px 16px', borderRadius: '8px', textAlign: 'center', flexShrink: 0, background: daysLeft <= 1 ? t.dangerBg : daysLeft <= 3 ? t.warningBg : t.accentBg, border: `1px solid ${daysLeft <= 1 ? t.dangerBorder : daysLeft <= 3 ? t.warningBorder : t.accentBorder}`, alignSelf: isMobile ? 'flex-start' : 'center' }}>
-                          <div style={{ color: daysLeft <= 1 ? t.danger : daysLeft <= 3 ? t.warning : t.accent, fontSize: isMobile ? '18px' : '22px', fontWeight: '800', lineHeight: 1 }}>
-                            {daysLeft === 0 ? 'TODAY' : daysLeft < 0 ? 'LATE' : daysLeft}
+                          <div style={{ color: t.textPrimary, fontSize: '13px', fontWeight: '700', lineHeight: 1.4 }}>{story.headline}</div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <span style={{ color: t.textMuted, fontSize: '11px' }}>{formatDate(startDate)}</span>
+                            <span style={{ color: t.textMuted }}>→</span>
+                            <span style={{ color: daysLeft <= 1 ? t.danger : daysLeft <= 3 ? t.warning : t.accent, fontSize: '11px', fontWeight: '700' }}>{formatDate(story.deadline)}</span>
+                            <span style={{ color: t.textMuted, fontSize: '11px' }}>· {story.category}</span>
                           </div>
-                          {daysLeft > 0 && <div style={{ color: t.textMuted, fontSize: '10px', fontWeight: '600', marginTop: '2px' }}>{daysLeft === 1 ? 'DAY LEFT' : 'DAYS LEFT'}</div>}
                         </div>
-                      </div>
+                      ) : (
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px' }}>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', flexWrap: 'wrap' }}>
+                              <span style={{ padding: '3px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: '700', background: `${uc}20`, color: uc, border: `1px solid ${uc}40` }}>{story.urgency?.toUpperCase()}</span>
+                              <span style={{ padding: '3px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: '600', background: `${statusColor[story.status]}15`, color: statusColor[story.status] }}>{story.status?.replace('_', ' ').toUpperCase()}</span>
+                              <span style={{ color: t.textMuted, fontSize: '12px' }}>{story.category}</span>
+                            </div>
+                            <div style={{ color: t.textPrimary, fontSize: '15px', fontWeight: '700', marginBottom: '10px', lineHeight: 1.4 }}>{story.headline}</div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '5px 10px', background: t.bgCard, border: `1px solid ${t.borderCard}`, borderRadius: '6px' }}>
+                                <span style={{ color: t.textMuted, fontSize: '11px', fontWeight: '600' }}>ASSIGNED</span>
+                                <span style={{ color: t.textSecondary, fontSize: '12px', fontWeight: '700' }}>{formatDate(startDate)}</span>
+                              </div>
+                              <span style={{ color: t.textMuted, fontSize: '16px' }}>→</span>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '5px 10px', background: daysLeft <= 1 ? t.dangerBg : daysLeft <= 3 ? t.warningBg : t.accentBg, border: `1px solid ${daysLeft <= 1 ? t.dangerBorder : daysLeft <= 3 ? t.warningBorder : t.accentBorder}`, borderRadius: '6px' }}>
+                                <span style={{ color: t.textMuted, fontSize: '11px', fontWeight: '600' }}>DEADLINE</span>
+                                <span style={{ color: daysLeft <= 1 ? t.danger : daysLeft <= 3 ? t.warning : t.accent, fontSize: '12px', fontWeight: '700' }}>{formatDate(story.deadline)}</span>
+                              </div>
+                            </div>
+                          </div>
+                          <div style={{ padding: '10px 16px', borderRadius: '8px', textAlign: 'center', flexShrink: 0, background: daysLeft <= 1 ? t.dangerBg : daysLeft <= 3 ? t.warningBg : t.accentBg, border: `1px solid ${daysLeft <= 1 ? t.dangerBorder : daysLeft <= 3 ? t.warningBorder : t.accentBorder}`, alignSelf: 'center' }}>
+                            <div style={{ color: daysLeft <= 1 ? t.danger : daysLeft <= 3 ? t.warning : t.accent, fontSize: '22px', fontWeight: '800', lineHeight: 1 }}>
+                              {daysLeft === 0 ? 'TODAY' : daysLeft < 0 ? 'LATE' : daysLeft}
+                            </div>
+                            {daysLeft > 0 && <div style={{ color: t.textMuted, fontSize: '10px', fontWeight: '600', marginTop: '2px' }}>{daysLeft === 1 ? 'DAY LEFT' : 'DAYS LEFT'}</div>}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )
                 })}
@@ -469,7 +605,17 @@ export default function CalendarPage() {
 
         {/* Upcoming Holidays */}
         <div style={{ ...cardStyle, marginBottom: '20px' }}>
-          <h2 style={{ color: t.textPrimary, margin: '0 0 14px', fontSize: '14px', fontWeight: '700', letterSpacing: '0.5px' }}>UPCOMING HOLIDAYS</h2>
+          {isMobile ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px', paddingBottom: '10px', borderBottom: `1px solid ${t.borderCard}` }}>
+              <div style={{ width: '3px', height: '16px', borderRadius: '2px', background: t.danger, flexShrink: 0 }} />
+              <h2 style={{ color: t.textPrimary, margin: 0, fontSize: '13px', fontWeight: '700', letterSpacing: '0.5px' }}>UPCOMING HOLIDAYS</h2>
+              <span style={{ marginLeft: 'auto', padding: '2px 8px', borderRadius: '10px', background: t.dangerBg, border: `1px solid ${t.dangerBorder}`, color: t.danger, fontSize: '11px', fontWeight: '700' }}>
+                {holidays.filter(h => h.date.split('T')[0] >= today).length}
+              </span>
+            </div>
+          ) : (
+            <h2 style={{ color: t.textPrimary, margin: '0 0 14px', fontSize: '14px', fontWeight: '700', letterSpacing: '0.5px' }}>UPCOMING HOLIDAYS</h2>
+          )}
           {holidays.filter(h => h.date.split('T')[0] >= today).length === 0 ? (
             <div style={{ color: t.textDisabled, fontSize: '13px', textAlign: 'center', padding: '20px', border: `1px dashed ${t.borderCard}`, borderRadius: '8px' }}>No upcoming holidays</div>
           ) : (
@@ -477,10 +623,12 @@ export default function CalendarPage() {
               {holidays.filter(h => h.date.split('T')[0] >= today).map(h => (
                 <div key={h.id} style={{ padding: isMobile ? '10px 12px' : '12px 16px', borderRadius: '8px', border: `1px solid ${t.dangerBorder}`, background: t.dangerBg, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: t.danger, flexShrink: 0 }} />
+                    <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: t.danger, flexShrink: 0 }} />
                     <span style={{ color: t.textPrimary, fontSize: isMobile ? '12px' : '13px', fontWeight: '600' }}>{h.name}</span>
                   </div>
-                  <span style={{ color: t.danger, fontSize: '12px', fontWeight: '600', whiteSpace: 'nowrap', marginLeft: '8px' }}>{h.date.split('T')[0]}</span>
+                  <span style={{ color: t.danger, fontSize: '11px', fontWeight: '700', whiteSpace: 'nowrap', marginLeft: '8px', padding: '2px 8px', background: `${t.danger}15`, borderRadius: '4px', border: `1px solid ${t.dangerBorder}` }}>
+                    {h.date.split('T')[0]}
+                  </span>
                 </div>
               ))}
             </div>
@@ -490,23 +638,35 @@ export default function CalendarPage() {
         {/* Upcoming Leaves */}
         {leaves.filter(l => l.leave_date >= today).length > 0 && (
           <div style={cardStyle}>
-            <h2 style={{ color: t.textPrimary, margin: '0 0 14px', fontSize: '14px', fontWeight: '700', letterSpacing: '0.5px' }}>
-              {role === 'reporter' ? 'MY UPCOMING LEAVES' : 'REPORTER UPCOMING LEAVES'}
-            </h2>
+            {isMobile ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px', paddingBottom: '10px', borderBottom: `1px solid ${t.borderCard}` }}>
+                <div style={{ width: '3px', height: '16px', borderRadius: '2px', background: t.warning, flexShrink: 0 }} />
+                <h2 style={{ color: t.textPrimary, margin: 0, fontSize: '13px', fontWeight: '700', letterSpacing: '0.5px' }}>
+                  {role === 'reporter' ? 'MY UPCOMING LEAVES' : 'REPORTER LEAVES'}
+                </h2>
+                <span style={{ marginLeft: 'auto', padding: '2px 8px', borderRadius: '10px', background: t.warningBg, border: `1px solid ${t.warningBorder}`, color: t.warning, fontSize: '11px', fontWeight: '700' }}>
+                  {leaves.filter(l => l.leave_date >= today).length}
+                </span>
+              </div>
+            ) : (
+              <h2 style={{ color: t.textPrimary, margin: '0 0 14px', fontSize: '14px', fontWeight: '700', letterSpacing: '0.5px' }}>
+                {role === 'reporter' ? 'MY UPCOMING LEAVES' : 'REPORTER UPCOMING LEAVES'}
+              </h2>
+            )}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               {leaves.filter(l => l.leave_date >= today).map(leave => (
-                <div key={leave.id} style={{ padding: isMobile ? '10px 12px' : '14px 16px', borderRadius: '8px', border: `1px solid ${leave.status === 'acknowledged' ? t.warningBorder : leave.status === 'rejected' ? t.dangerBorder : t.accentBorder}`, background: leave.status === 'acknowledged' ? t.warningBg : leave.status === 'rejected' ? t.dangerBg : t.accentBg, display: 'flex', flexDirection: isMobile ? 'column' : 'row', justifyContent: 'space-between', alignItems: isMobile ? 'flex-start' : 'center', gap: isMobile ? '8px' : '0' }}>
-                  <div>
+                <div key={leave.id} style={{ padding: isMobile ? '10px 12px' : '14px 16px', borderRadius: '8px', border: `1px solid ${leave.status === 'acknowledged' ? t.warningBorder : leave.status === 'rejected' ? t.dangerBorder : t.accentBorder}`, background: leave.status === 'acknowledged' ? t.warningBg : leave.status === 'rejected' ? t.dangerBg : t.accentBg, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px', flexWrap: 'wrap' }}>
-                      <span style={{ padding: '3px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: '700', background: `${ltc[leave.leave_type]}20`, color: ltc[leave.leave_type], border: `1px solid ${ltc[leave.leave_type]}30` }}>{leave.leave_type?.toUpperCase()}</span>
-                      <span style={{ color: t.textPrimary, fontSize: isMobile ? '13px' : '14px', fontWeight: '700' }}>{formatDate(leave.leave_date)}</span>
+                      <span style={{ padding: '2px 7px', borderRadius: '4px', fontSize: '10px', fontWeight: '700', background: `${ltc[leave.leave_type]}20`, color: ltc[leave.leave_type], border: `1px solid ${ltc[leave.leave_type]}30` }}>{leave.leave_type?.toUpperCase()}</span>
+                      <span style={{ color: t.textPrimary, fontSize: isMobile ? '12px' : '14px', fontWeight: '700' }}>{formatDate(leave.leave_date)}</span>
                     </div>
-                    {leave.notes && <p style={{ color: t.textMuted, fontSize: '12px', margin: 0 }}>{leave.notes}</p>}
+                    {leave.notes && <p style={{ color: t.textMuted, fontSize: '11px', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{leave.notes}</p>}
                     {leave.status === 'rejected' && leave.reject_reason && (
-                      <p style={{ color: t.danger, fontSize: '12px', margin: '4px 0 0', fontWeight: '500' }}>Rejected: {leave.reject_reason}</p>
+                      <p style={{ color: t.danger, fontSize: '11px', margin: '3px 0 0', fontWeight: '500' }}>Rejected: {leave.reject_reason}</p>
                     )}
                   </div>
-                  <span style={{ padding: '4px 12px', borderRadius: '4px', fontSize: '11px', fontWeight: '700', letterSpacing: '0.5px', whiteSpace: 'nowrap', marginLeft: isMobile ? '0' : '12px', background: leave.status === 'acknowledged' ? t.successBg : leave.status === 'rejected' ? t.dangerBg : t.accentBg, color: leave.status === 'acknowledged' ? t.success : leave.status === 'rejected' ? t.danger : t.accent, border: `1px solid ${leave.status === 'acknowledged' ? t.successBorder : leave.status === 'rejected' ? t.dangerBorder : t.accentBorder}` }}>
+                  <span style={{ padding: '3px 10px', borderRadius: '4px', fontSize: '10px', fontWeight: '700', letterSpacing: '0.5px', whiteSpace: 'nowrap', flexShrink: 0, background: leave.status === 'acknowledged' ? t.successBg : leave.status === 'rejected' ? t.dangerBg : t.accentBg, color: leave.status === 'acknowledged' ? t.success : leave.status === 'rejected' ? t.danger : t.accent, border: `1px solid ${leave.status === 'acknowledged' ? t.successBorder : leave.status === 'rejected' ? t.dangerBorder : t.accentBorder}` }}>
                     {leave.status?.toUpperCase()}
                   </span>
                 </div>
@@ -575,13 +735,11 @@ export default function CalendarPage() {
               </div>
               <button onClick={() => setDayDetailModal(null)} style={{ background: 'none', border: 'none', color: t.textMuted, fontSize: '22px', cursor: 'pointer', minWidth: '44px', minHeight: '44px' }}>x</button>
             </div>
-
             {dayDetailModal.status.isToday && (
               <div style={{ padding: '8px 14px', background: t.accentBg, border: `1px solid ${t.accentBorder}`, borderRadius: '8px', marginBottom: '14px' }}>
                 <p style={{ color: t.accent, fontSize: '12px', fontWeight: '700', margin: 0 }}>TODAY</p>
               </div>
             )}
-
             {(() => {
               const allS = [...(dayDetailModal.status.storiesDeadline || []), ...(dayDetailModal.status.storiesActive || []).filter((s: any) => !dayDetailModal.status.storiesDeadline?.find((d: any) => d.id === s.id))]
               if (allS.length === 0) return null
@@ -623,14 +781,12 @@ export default function CalendarPage() {
                 </div>
               )
             })()}
-
             {dayDetailModal.status.holiday && (
               <div style={{ padding: '14px 16px', background: t.dangerBg, border: `1px solid ${t.dangerBorder}`, borderRadius: '8px', marginBottom: '12px' }}>
                 <p style={{ color: t.textMuted, fontSize: '11px', fontWeight: '600', margin: '0 0 6px' }}>PUBLIC HOLIDAY</p>
                 <p style={{ color: t.danger, fontSize: isMobile ? '14px' : '16px', fontWeight: '700', margin: 0 }}>{dayDetailModal.status.holiday.name}</p>
               </div>
             )}
-
             {dayDetailModal.status.leave && (
               <div style={{ padding: '14px 16px', background: dayDetailModal.status.leave.status === 'acknowledged' ? t.warningBg : dayDetailModal.status.leave.status === 'rejected' ? t.dangerBg : t.accentBg, border: `1px solid ${dayDetailModal.status.leave.status === 'acknowledged' ? t.warningBorder : dayDetailModal.status.leave.status === 'rejected' ? t.dangerBorder : t.accentBorder}`, borderRadius: '8px', marginBottom: '12px' }}>
                 <p style={{ color: t.textMuted, fontSize: '11px', fontWeight: '600', margin: '0 0 8px' }}>LEAVE REQUEST</p>
@@ -640,7 +796,6 @@ export default function CalendarPage() {
                 </div>
               </div>
             )}
-
             {!dayDetailModal.status.holiday && !dayDetailModal.status.leave && (
               <div style={{ padding: '14px 16px', background: dayDetailModal.status.isWeekend ? t.bgPage : dayDetailModal.status.isAvailable ? t.successBg : t.dangerBg, border: `1px solid ${dayDetailModal.status.isWeekend ? t.borderCard : dayDetailModal.status.isAvailable ? t.successBorder : t.dangerBorder}`, borderRadius: '8px', marginBottom: '12px' }}>
                 <p style={{ color: t.textMuted, fontSize: '11px', fontWeight: '600', margin: '0 0 6px' }}>AVAILABILITY STATUS</p>
@@ -649,14 +804,12 @@ export default function CalendarPage() {
                 </p>
               </div>
             )}
-
             {role === 'reporter' && !dayDetailModal.status.isWeekend && !dayDetailModal.status.isPast && !dayDetailModal.status.holiday && !dayDetailModal.status.leave && (
               <button onClick={() => { setDayDetailModal(null); setSelectedDate(dayDetailModal.dateStr); setLeaveModal(true) }}
                 style={{ width: '100%', padding: '12px', marginBottom: '12px', background: t.accentBg, border: `1px solid ${t.accentBorder}`, borderRadius: '8px', color: t.accent, fontSize: '13px', fontWeight: '700', cursor: 'pointer', fontFamily: 'inherit', minHeight: '48px' }}>
                 APPLY FOR LEAVE ON THIS DAY
               </button>
             )}
-
             <button onClick={() => setDayDetailModal(null)}
               style={{ width: '100%', padding: '12px', background: 'transparent', border: `1px solid ${t.borderCard}`, borderRadius: '8px', color: t.textMuted, fontSize: '13px', cursor: 'pointer', fontFamily: 'inherit', minHeight: '48px' }}>
               CLOSE
