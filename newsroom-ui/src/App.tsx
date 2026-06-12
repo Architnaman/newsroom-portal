@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import { ThemeProvider, useTheme, fontZoomMap } from './context/ThemeContext'
 import { DateFormatProvider } from './context/DateFormatContext'
@@ -12,7 +12,9 @@ import CalendarPage from './pages/CalendarPage'
 import ReporterView from './pages/ReporterView'
 import AdminPortal from './pages/AdminPortal'
 import AIReportGenerator from './pages/AIReportGenerator'
+import ChatPage from './pages/ChatPage'
 import Chatbot from './components/Chatbot'
+
 
 function ProtectedRoute({ children, requiredRole }: {
   children: React.ReactNode
@@ -47,6 +49,7 @@ function ProtectedRoute({ children, requiredRole }: {
 function AppRoutes() {
   const { user, role } = useAuth()
   const { fontSize, bgMain, background } = useTheme()
+  const location = useLocation()
 
   function getHome() {
     if (role === 'admin') return '/admin'
@@ -114,9 +117,16 @@ function AppRoutes() {
           </ProtectedRoute>
         } />
 
+        {/* CHAT — shared between editor and reporter */}
+        <Route path="/chat" element={
+          <ProtectedRoute requiredRole={['editor', 'reporter']}>
+            <ChatPage />
+          </ProtectedRoute>
+        } />
+
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
-      {user && role !== 'admin' && <Chatbot />}
+      {user && role !== 'admin' && location.pathname !== '/chat' && <Chatbot />}
     </div>
   )
 }

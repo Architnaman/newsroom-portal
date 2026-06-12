@@ -87,12 +87,14 @@ export default function Navbar() {
     { label: 'Kanban', path: '/kanban' },
     { label: 'Roster', path: '/roster' },
     { label: 'Calendar', path: '/calendar' },
+    { label: 'Chat', path: '/chat' },
     { label: 'Ambient Scribe', path: '/ai-report' },
   ]
   const reporterNav: NavItem[] = [
     { label: 'My Stories', path: '/queue' },
     { label: 'Availability', path: '/availability' },
     { label: 'Calendar', path: '/calendar' },
+    { label: 'Chat', path: '/chat' },
   ]
   const adminNav: NavItem[] = [
     { label: 'Settings', path: '/admin' },
