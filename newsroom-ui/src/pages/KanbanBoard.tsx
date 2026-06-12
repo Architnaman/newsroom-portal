@@ -236,15 +236,32 @@ export default function KanbanBoard() {
           </button>
         )}
 
-        {/* Open report button — opens primary file */}
+        {/* Open report button — opens ALL files for published stories */}
         {story.status === "published" && story.filed_file_url && (
-          <button onClick={e => {
-            e.stopPropagation()
-            window.open(primaryUrl, "_blank")
-          }}
-            style={{ width: "100%", padding: "8px", marginTop: "8px", background: t.successBg, border: `1px solid ${t.successBorder}`, borderRadius: "6px", color: t.success, fontSize: "11px", fontWeight: "600", letterSpacing: "0.5px", cursor: "pointer", fontFamily: "inherit", minHeight: "44px" }}>
-            {getFiledNames(story).length > 1 ? `OPEN ${getFiledNames(story).length} FILES` : "OPEN REPORT"}
-          </button>
+          <div style={{ display: "flex", flexDirection: "column", gap: "4px", marginTop: "8px" }}>
+            {urls.length > 1 ? (
+              // Multiple files — show individual open button for each
+              urls.map((url: string, idx: number) => {
+                const names = getFiledNames(story)
+                const name = names[idx] || `File ${idx + 1}`
+                const icon = getFileIcon(name)
+                return (
+                  <button key={idx} onClick={e => { e.stopPropagation(); window.open(url, "_blank") }}
+                    style={{ width: "100%", padding: "7px 10px", background: t.successBg, border: `1px solid ${t.successBorder}`, borderRadius: "6px", color: t.success, fontSize: "10px", fontWeight: "600", cursor: "pointer", fontFamily: "inherit", minHeight: "36px", display: "flex", alignItems: "center", gap: "6px", overflow: "hidden" }}>
+                    <span style={{ flexShrink: 0 }}>{icon}</span>
+                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, textAlign: "left" as const }}>{name}</span>
+                    <span style={{ flexShrink: 0, fontSize: "9px", opacity: 0.7 }}>OPEN</span>
+                  </button>
+                )
+              })
+            ) : (
+              // Single file — original button
+              <button onClick={e => { e.stopPropagation(); window.open(primaryUrl, "_blank") }}
+                style={{ width: "100%", padding: "8px", background: t.successBg, border: `1px solid ${t.successBorder}`, borderRadius: "6px", color: t.success, fontSize: "11px", fontWeight: "600", letterSpacing: "0.5px", cursor: "pointer", fontFamily: "inherit", minHeight: "44px" }}>
+                OPEN REPORT
+              </button>
+            )}
+          </div>
         )}
       </div>
     )

@@ -96,22 +96,22 @@ export default function ReporterRoster() {
       outlineOffset: '2px',
     }
     switch (status) {
-      case 'holiday':      return { ...base, background: t.dangerBg,  borderColor: t.dangerBorder,  color: t.danger,       content: 'H' }
-      case 'available':    return { ...base, background: t.successBg, borderColor: t.successBorder, color: t.success,      content: '✓' }
-      case 'leave_approved': return { ...base, background: t.dangerBg, borderColor: t.dangerBorder, color: t.danger,       content: 'L' }
-      case 'leave_pending':  return { ...base, background: t.warningBg, borderColor: t.warningBorder, color: t.warning,   content: '?' }
-      case 'past':         return { ...base, background: t.bgPage,    borderColor: t.borderCard,    color: t.textDisabled, content: '–' }
-      default:             return { ...base, background: t.bgInput,   borderColor: t.borderCard,    color: t.textDisabled, content: '' }
+      case 'holiday':        return { ...base, background: t.dangerBg,  borderColor: t.dangerBorder,  color: t.danger,       content: 'H' }
+      case 'available':      return { ...base, background: t.successBg, borderColor: t.successBorder, color: t.success,      content: '✓' }
+      case 'leave_approved': return { ...base, background: t.dangerBg,  borderColor: t.dangerBorder,  color: t.danger,       content: 'L' }
+      case 'leave_pending':  return { ...base, background: t.warningBg, borderColor: t.warningBorder, color: t.warning,      content: '?' }
+      case 'past':           return { ...base, background: t.bgPage,    borderColor: t.borderCard,    color: t.textDisabled, content: '–' }
+      default:               return { ...base, background: t.bgInput,   borderColor: t.borderCard,    color: t.textDisabled, content: '' }
     }
   }
 
   function getDayStatusColor(status: string): string {
     switch (status) {
-      case 'available':     return t.success
-      case 'holiday':       return t.danger
+      case 'available':      return t.success
+      case 'holiday':        return t.danger
       case 'leave_approved': return t.danger
-      case 'leave_pending': return t.warning
-      default:              return t.borderCard
+      case 'leave_pending':  return t.warning
+      default:               return t.borderCard
     }
   }
 
@@ -151,7 +151,7 @@ export default function ReporterRoster() {
           display: 'flex',
           flexDirection: isMobile ? 'column' : 'row',
           justifyContent: 'space-between',
-          alignItems: isMobile ? 'flex-start' : 'flex-start',
+          alignItems: 'flex-start',
           marginBottom: isMobile ? '16px' : '28px',
           gap: '16px'
         }}>
@@ -188,6 +188,7 @@ export default function ReporterRoster() {
             No active reporters found
           </div>
         ) : isMobile ? (
+
           // ── MOBILE: Card layout ──
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
             {reporters.map(reporter => {
@@ -196,6 +197,7 @@ export default function ReporterRoster() {
               const capacityColor = capacityPct >= 100 ? t.danger : capacityPct > 50 ? t.warning : t.success
               return (
                 <div key={reporter.id} style={{ background: t.bgCard, border: `1px solid ${t.borderCard}`, borderRadius: '10px', padding: '16px', boxShadow: t.shadowCard }}>
+
                   {/* Reporter name + action */}
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px' }}>
                     <div>
@@ -210,30 +212,72 @@ export default function ReporterRoster() {
                   </div>
 
                   {/* Beats */}
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginBottom: '12px' }}>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginBottom: '14px' }}>
                     {reporter.beats.map((b: string) => (
                       <span key={b} style={{ padding: '3px 8px', background: t.accentBg, border: `1px solid ${t.accentBorder}`, borderRadius: '4px', color: t.accent, fontSize: '10px', fontWeight: '600' }}>{b}</span>
                     ))}
                   </div>
 
-                  {/* Day availability dots */}
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '4px', marginBottom: '12px' }}>
-                    {DAYS.map(day => {
-                      const status = getDayStatus(reporter.id, day)
-                      const isToday_ = weekDates[day] === today
-                      const dotColor = getDayStatusColor(status)
-                      return (
-                        <div key={day} style={{ textAlign: 'center' }}>
-                          <div style={{ fontSize: '9px', color: isToday_ ? t.accent : t.textMuted, fontWeight: isToday_ ? '700' : '500', marginBottom: '3px' }}>{day}</div>
-                          <div style={{ width: '24px', height: '24px', borderRadius: '4px', margin: '0 auto', background: `${dotColor}15`, border: `2px solid ${dotColor}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '9px', color: dotColor, fontWeight: '700', outline: isToday_ ? `2px solid ${t.accent}` : 'none', outlineOffset: '1px' }}>
-                            {status === 'available' ? '✓' : status === 'holiday' ? 'H' : status === 'leave_approved' ? 'L' : status === 'leave_pending' ? '?' : status === 'past' ? '–' : ''}
-                          </div>
-                        </div>
-                      )
-                    })}
-                  </div>
+                  {/* ── Day availability: single table so headers align with boxes ── */}
+                  <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse', marginBottom: '14px' }}>
+                    <thead>
+                      <tr>
+                        {DAYS.map(day => {
+                          const isToday_ = weekDates[day] === today
+                          return (
+                            <th key={day} style={{
+                              textAlign: 'center',
+                              padding: '0 0 5px 0',
+                              fontSize: '10px',
+                              fontWeight: isToday_ ? '700' : '500',
+                              color: isToday_ ? t.accent : t.textMuted,
+                              width: '14.28%',
+                            }}>
+                              {day.slice(0, 2)}
+                            </th>
+                          )
+                        })}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        {DAYS.map(day => {
+                          const status = getDayStatus(reporter.id, day)
+                          const isToday_ = weekDates[day] === today
+                          const dotColor = getDayStatusColor(status)
+                          const symbol = status === 'available' ? '✓'
+                            : status === 'holiday' ? 'H'
+                            : status === 'leave_approved' ? 'L'
+                            : status === 'leave_pending' ? '?'
+                            : status === 'past' ? '–' : ''
+                          return (
+                            <td key={day} style={{ textAlign: 'center', padding: '0 2px' }}>
+                              <div style={{
+                                width: '28px',
+                                height: '28px',
+                                borderRadius: '6px',
+                                margin: '0 auto',
+                                background: `${dotColor}18`,
+                                border: `2px solid ${dotColor}`,
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                fontSize: '10px',
+                                color: dotColor,
+                                fontWeight: '700',
+                                outline: isToday_ ? `2px solid ${t.accent}` : 'none',
+                                outlineOffset: '2px',
+                              }}>
+                                {symbol}
+                              </div>
+                            </td>
+                          )
+                        })}
+                      </tr>
+                    </tbody>
+                  </table>
 
-                  {/* Capacity */}
+                  {/* Capacity bar */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                     <div style={{ flex: 1 }}>
                       <div style={{ height: '6px', background: t.bgPage, borderRadius: '3px', border: `1px solid ${t.borderCard}`, overflow: 'hidden' }}>
@@ -248,8 +292,10 @@ export default function ReporterRoster() {
               )
             })}
           </div>
+
         ) : (
-          // ── DESKTOP/TABLET: Original table with horizontal scroll ──
+
+          // ── DESKTOP/TABLET: Original table — unchanged ──
           <div style={{ overflowX: 'auto', borderRadius: '10px', boxShadow: t.shadowCard }}>
             <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: '0 4px', minWidth: '900px' }}>
               <thead>
