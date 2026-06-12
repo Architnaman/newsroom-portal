@@ -28,13 +28,13 @@ CREATE TABLE IF NOT EXISTS stories (
   priority integer DEFAULT 3 CHECK (priority BETWEEN 1 AND 5),
   status text DEFAULT 'unassigned' CHECK (status IN ('unassigned', 'assigned', 'in_progress', 'filed', 'published')),
   deadline date NOT NULL,
-  filed_file_url text,       -- Word document URL uploaded by reporter
-  filed_file_name text,      -- Word document filename
-  filed_at timestamptz,      -- When reporter filed the report
-  published_at timestamptz,  -- When editor published the story
-  reassign_reason text,      -- Editor reason when reassigning story back
-  editor_feedback text,      -- Optional feedback from editor on publish
-  feedback_at timestamptz,   -- When editor gave feedback
+  filed_file_url text,
+  filed_file_name text,
+  filed_at timestamptz,
+  published_at timestamptz,
+  reassign_reason text,
+  editor_feedback text,
+  feedback_at timestamptz,
   created_at timestamptz DEFAULT now()
 );
 
@@ -49,12 +49,11 @@ CREATE TABLE IF NOT EXISTS assignments (
   assigned_at timestamptz DEFAULT now(),
   reassigned_from uuid,
   is_active boolean DEFAULT true,
-  -- Override assignment support (when reporter is unavailable)
-  is_override boolean DEFAULT false,             -- true if assigned despite unavailability
-  override_reason text,                          -- Editor reason for override
-  override_status text DEFAULT 'pending' CHECK (override_status IN ('pending', 'accepted', 'rejected')), -- Reporter response status
-  override_response text,                        -- Reporter reason for accepting/rejecting
-  override_responded_at timestamptz              -- When reporter responded
+  is_override boolean DEFAULT false,
+  override_reason text,
+  override_status text DEFAULT 'pending' CHECK (override_status IN ('pending', 'accepted', 'rejected')),
+  override_response text,
+  override_responded_at timestamptz
 );
 
 -- ================================================
@@ -80,7 +79,7 @@ CREATE TABLE IF NOT EXISTS leave_requests (
   is_immediate boolean DEFAULT false,
   notes text,
   status text DEFAULT 'pending' CHECK (status IN ('pending', 'acknowledged', 'rejected')),
-  reject_reason text,        -- Editor reason when rejecting leave
+  reject_reason text,
   acknowledged_at timestamptz,
   created_at timestamptz DEFAULT now()
 );
@@ -108,8 +107,6 @@ CREATE TABLE IF NOT EXISTS notification_log (
 
 -- ================================================
 -- TABLE: holidays
--- Stores default public holidays on which all
--- reporters are unavailable by default
 -- ================================================
 CREATE TABLE IF NOT EXISTS holidays (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -120,16 +117,12 @@ CREATE TABLE IF NOT EXISTS holidays (
 );
 
 -- ================================================
--- STORAGE BUCKET
--- For storing reporter Word document uploads
+-- STORAGE BUCKET: story-files
 -- ================================================
 INSERT INTO storage.buckets (id, name, public)
 VALUES ('story-files', 'story-files', true)
 ON CONFLICT (id) DO NOTHING;
 
--- ================================================
--- Storage RLS policy so reporters can upload files
--- ================================================
 DROP POLICY IF EXISTS "story_files_upload" ON storage.objects;
 DROP POLICY IF EXISTS "story_files_read" ON storage.objects;
 DROP POLICY IF EXISTS "story_files_delete" ON storage.objects;
@@ -172,8 +165,6 @@ ON CONFLICT (date) DO NOTHING;
 
 -- ================================================
 -- AUTO COMPLEXITY TRIGGER
--- Automatically updates reporter complexity_level
--- when they file or publish a story
 -- ================================================
 CREATE OR REPLACE FUNCTION auto_update_complexity()
 RETURNS trigger AS
@@ -205,7 +196,6 @@ CREATE TRIGGER trigger_update_complexity
 
 -- ================================================
 -- LEAVE FILING REQUESTS TABLE (OLD/UNUSED)
--- Kept for backward compatibility — not used by app
 -- ================================================
 CREATE TABLE IF NOT EXISTS leave_filing_requests (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -220,7 +210,6 @@ CREATE TABLE IF NOT EXISTS leave_filing_requests (
 
 -- ================================================
 -- ADDED COLUMNS TO LEAVE_REQUESTS
--- Track editor-filed leaves
 -- ================================================
 ALTER TABLE leave_requests ADD COLUMN IF NOT EXISTS filed_by_editor boolean DEFAULT false;
 ALTER TABLE leave_requests ADD COLUMN IF NOT EXISTS editor_note text;
@@ -228,8 +217,7 @@ ALTER TABLE leave_requests ADD COLUMN IF NOT EXISTS acknowledged_at timestamptz;
 ALTER TABLE leave_requests ADD COLUMN IF NOT EXISTS reject_reason text;
 
 -- ================================================
--- WEEKLY REPORTER LOAD RESET (FIXED VERSION)
--- current_load column does not exist - use assignments
+-- WEEKLY REPORTER LOAD RESET
 -- ================================================
 CREATE OR REPLACE FUNCTION reset_weekly_reporter_load()
 RETURNS void AS $$
@@ -242,8 +230,7 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- ================================================
--- APP SETTINGS TABLE (Admin portal)
--- Stores date format, deadline format, week start day
+-- APP SETTINGS TABLE
 -- ================================================
 CREATE TABLE IF NOT EXISTS app_settings (
   key text PRIMARY KEY,
@@ -306,19 +293,13 @@ CREATE INDEX IF NOT EXISTS idx_ai_reports_created_at ON ai_reports(created_at DE
 -- ================================================================
 -- ================================================================
 --                  ROW LEVEL SECURITY (RLS)
---   Added in Session 9 — replaces earlier "DISABLE RLS" approach
---   Uses Supabase Auth (auth.uid()) + profiles table for role
---   and reporter_id lookups. leave_filing_requests and profiles
---   itself are intentionally left without per-row restrictions
---   beyond what's defined below (profiles is required for every
---   other policy to function, so it uses a permissive read policy
---   for authenticated users to avoid breaking login).
+--   Added in Session 9 — uses Supabase Auth (auth.uid()) +
+--   profiles table for role and reporter_id lookups.
 -- ================================================================
 -- ================================================================
 
 -- ----------------------------------------------------------------
 -- profiles
--- Required by every other policy below (role + reporter_id lookup)
 -- ----------------------------------------------------------------
 ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 
@@ -329,24 +310,16 @@ DROP POLICY IF EXISTS "profiles_insert_auth" ON profiles;
 DROP POLICY IF EXISTS "profiles_insert_authenticated" ON profiles;
 DROP POLICY IF EXISTS "profiles_update_own" ON profiles;
 
--- Any authenticated user can read all profiles.
--- Required because AuthContext fetches profile on login before
--- full session/JWT context is always available; restricting to
--- id = auth.uid() caused "unable to fetch" on login.
--- App only ever queries WHERE id = own user id, so this is safe.
 CREATE POLICY "profiles_select_authenticated"
   ON profiles FOR SELECT
   TO authenticated
   USING (true);
 
--- Users can only create their own profile row
 CREATE POLICY "profiles_insert_authenticated"
   ON profiles FOR INSERT
   TO authenticated
   WITH CHECK (id = auth.uid());
 
--- Users can only update their own profile row
--- (prevents a reporter from changing their own role to editor)
 CREATE POLICY "profiles_update_own"
   ON profiles FOR UPDATE
   TO authenticated
@@ -364,15 +337,11 @@ DROP POLICY IF EXISTS "stories_insert_editor_only" ON stories;
 DROP POLICY IF EXISTS "stories_update_editor_or_reporter" ON stories;
 DROP POLICY IF EXISTS "stories_delete_editor_only" ON stories;
 
--- All authenticated users can read all stories
--- (needed for assignments joins in Reporter Queue / Calendar
--- and for Kanban board)
 CREATE POLICY "stories_select_authenticated"
   ON stories FOR SELECT
   TO authenticated
   USING (true);
 
--- Only editor/admin can create stories
 CREATE POLICY "stories_insert_editor_only"
   ON stories FOR INSERT
   TO authenticated
@@ -380,9 +349,6 @@ CREATE POLICY "stories_insert_editor_only"
     (SELECT role FROM profiles WHERE id = auth.uid()) IN ('editor', 'admin')
   );
 
--- Editor/admin can update any story.
--- Reporter can update a story only if its status is
--- in_progress or filed (covers "start working" / "file report")
 CREATE POLICY "stories_update_editor_or_reporter"
   ON stories FOR UPDATE
   TO authenticated
@@ -395,7 +361,6 @@ CREATE POLICY "stories_update_editor_or_reporter"
     )
   );
 
--- Only editor/admin can delete stories
 CREATE POLICY "stories_delete_editor_only"
   ON stories FOR DELETE
   TO authenticated
@@ -414,8 +379,6 @@ DROP POLICY IF EXISTS "assignments_insert_editor_only" ON assignments;
 DROP POLICY IF EXISTS "assignments_update" ON assignments;
 DROP POLICY IF EXISTS "assignments_delete_editor_only" ON assignments;
 
--- Editor/admin read all assignments.
--- Reporter reads only their own assignments
 CREATE POLICY "assignments_select"
   ON assignments FOR SELECT
   TO authenticated
@@ -424,7 +387,6 @@ CREATE POLICY "assignments_select"
     OR reporter_id = (SELECT reporter_id FROM profiles WHERE id = auth.uid())
   );
 
--- Only editor/admin can create assignments (assign stories)
 CREATE POLICY "assignments_insert_editor_only"
   ON assignments FOR INSERT
   TO authenticated
@@ -432,9 +394,6 @@ CREATE POLICY "assignments_insert_editor_only"
     (SELECT role FROM profiles WHERE id = auth.uid()) IN ('editor', 'admin')
   );
 
--- Editor/admin can update any assignment.
--- Reporter can update only their own assignment row
--- (covers accept/reject of override assignments)
 CREATE POLICY "assignments_update"
   ON assignments FOR UPDATE
   TO authenticated
@@ -447,7 +406,6 @@ CREATE POLICY "assignments_update"
     OR reporter_id = (SELECT reporter_id FROM profiles WHERE id = auth.uid())
   );
 
--- Only editor/admin can delete (deactivate) assignments
 CREATE POLICY "assignments_delete_editor_only"
   ON assignments FOR DELETE
   TO authenticated
@@ -466,8 +424,6 @@ DROP POLICY IF EXISTS "availability_insert" ON availability;
 DROP POLICY IF EXISTS "availability_update" ON availability;
 DROP POLICY IF EXISTS "availability_delete_editor_only" ON availability;
 
--- Editor/admin read all availability.
--- Reporter reads only their own
 CREATE POLICY "availability_select"
   ON availability FOR SELECT
   TO authenticated
@@ -476,8 +432,6 @@ CREATE POLICY "availability_select"
     OR reporter_id = (SELECT reporter_id FROM profiles WHERE id = auth.uid())
   );
 
--- Reporter can insert only their own availability;
--- editor/admin can insert for anyone
 CREATE POLICY "availability_insert"
   ON availability FOR INSERT
   TO authenticated
@@ -486,8 +440,6 @@ CREATE POLICY "availability_insert"
     OR reporter_id = (SELECT reporter_id FROM profiles WHERE id = auth.uid())
   );
 
--- Reporter can update only their own availability;
--- editor/admin can update anyone's
 CREATE POLICY "availability_update"
   ON availability FOR UPDATE
   TO authenticated
@@ -500,7 +452,6 @@ CREATE POLICY "availability_update"
     OR reporter_id = (SELECT reporter_id FROM profiles WHERE id = auth.uid())
   );
 
--- Only editor/admin can delete availability rows
 CREATE POLICY "availability_delete_editor_only"
   ON availability FOR DELETE
   TO authenticated
@@ -519,8 +470,6 @@ DROP POLICY IF EXISTS "leave_requests_insert" ON leave_requests;
 DROP POLICY IF EXISTS "leave_requests_update_editor_only" ON leave_requests;
 DROP POLICY IF EXISTS "leave_requests_delete_editor_only" ON leave_requests;
 
--- Editor/admin read all leave requests.
--- Reporter reads only their own
 CREATE POLICY "leave_requests_select"
   ON leave_requests FOR SELECT
   TO authenticated
@@ -529,8 +478,6 @@ CREATE POLICY "leave_requests_select"
     OR reporter_id = (SELECT reporter_id FROM profiles WHERE id = auth.uid())
   );
 
--- Reporter can file leave only for themselves;
--- editor/admin can file on behalf of anyone
 CREATE POLICY "leave_requests_insert"
   ON leave_requests FOR INSERT
   TO authenticated
@@ -539,8 +486,6 @@ CREATE POLICY "leave_requests_insert"
     OR reporter_id = (SELECT reporter_id FROM profiles WHERE id = auth.uid())
   );
 
--- Only editor/admin can update leave requests
--- (acknowledge / reject) — reporter cannot self-approve
 CREATE POLICY "leave_requests_update_editor_only"
   ON leave_requests FOR UPDATE
   TO authenticated
@@ -551,7 +496,6 @@ CREATE POLICY "leave_requests_update_editor_only"
     (SELECT role FROM profiles WHERE id = auth.uid()) IN ('editor', 'admin')
   );
 
--- Only editor/admin can delete leave requests
 CREATE POLICY "leave_requests_delete_editor_only"
   ON leave_requests FOR DELETE
   TO authenticated
@@ -570,15 +514,11 @@ DROP POLICY IF EXISTS "reporters_insert_editor_only" ON reporters;
 DROP POLICY IF EXISTS "reporters_update" ON reporters;
 DROP POLICY IF EXISTS "reporters_delete_editor_only" ON reporters;
 
--- All authenticated users can read all reporters
--- (needed for AssignModal scoring, Roster, Chatbot context,
--- and showing reporter names throughout the app)
 CREATE POLICY "reporters_select_authenticated"
   ON reporters FOR SELECT
   TO authenticated
   USING (true);
 
--- Only editor/admin can create new reporters
 CREATE POLICY "reporters_insert_editor_only"
   ON reporters FOR INSERT
   TO authenticated
@@ -586,8 +526,6 @@ CREATE POLICY "reporters_insert_editor_only"
     (SELECT role FROM profiles WHERE id = auth.uid()) IN ('editor', 'admin')
   );
 
--- Editor/admin can update any reporter.
--- Reporter can update only their own record
 CREATE POLICY "reporters_update"
   ON reporters FOR UPDATE
   TO authenticated
@@ -600,7 +538,6 @@ CREATE POLICY "reporters_update"
     OR id = (SELECT reporter_id FROM profiles WHERE id = auth.uid())
   );
 
--- Only editor/admin can delete reporters
 CREATE POLICY "reporters_delete_editor_only"
   ON reporters FOR DELETE
   TO authenticated
@@ -621,14 +558,11 @@ DROP POLICY IF EXISTS "holidays_insert_editor_only" ON holidays;
 DROP POLICY IF EXISTS "holidays_update_editor_only" ON holidays;
 DROP POLICY IF EXISTS "holidays_delete_editor_only" ON holidays;
 
--- All authenticated users can read holidays
--- (needed by Calendar, Roster, Chatbot for every role)
 CREATE POLICY "holidays_select_authenticated"
   ON holidays FOR SELECT
   TO authenticated
   USING (true);
 
--- Only editor/admin can create holidays
 CREATE POLICY "holidays_insert_editor_only"
   ON holidays FOR INSERT
   TO authenticated
@@ -636,7 +570,6 @@ CREATE POLICY "holidays_insert_editor_only"
     (SELECT role FROM profiles WHERE id = auth.uid()) IN ('editor', 'admin')
   );
 
--- Only editor/admin can update holidays
 CREATE POLICY "holidays_update_editor_only"
   ON holidays FOR UPDATE
   TO authenticated
@@ -647,7 +580,6 @@ CREATE POLICY "holidays_update_editor_only"
     (SELECT role FROM profiles WHERE id = auth.uid()) IN ('editor', 'admin')
   );
 
--- Only editor/admin can delete holidays
 CREATE POLICY "holidays_delete_editor_only"
   ON holidays FOR DELETE
   TO authenticated
@@ -666,8 +598,6 @@ DROP POLICY IF EXISTS "notification_log_insert_authenticated" ON notification_lo
 DROP POLICY IF EXISTS "notification_log_update_editor_only" ON notification_log;
 DROP POLICY IF EXISTS "notification_log_delete_editor_only" ON notification_log;
 
--- Editor/admin read all notifications.
--- Reporter reads only their own
 CREATE POLICY "notification_log_select"
   ON notification_log FOR SELECT
   TO authenticated
@@ -676,14 +606,11 @@ CREATE POLICY "notification_log_select"
     OR reporter_id = (SELECT reporter_id FROM profiles WHERE id = auth.uid())
   );
 
--- Any authenticated user/process can insert notifications
--- (system-generated on assignment, leave actions, etc.)
 CREATE POLICY "notification_log_insert_authenticated"
   ON notification_log FOR INSERT
   TO authenticated
   WITH CHECK (true);
 
--- Only editor/admin can update notification log entries
 CREATE POLICY "notification_log_update_editor_only"
   ON notification_log FOR UPDATE
   TO authenticated
@@ -694,7 +621,6 @@ CREATE POLICY "notification_log_update_editor_only"
     (SELECT role FROM profiles WHERE id = auth.uid()) IN ('editor', 'admin')
   );
 
--- Only editor/admin can delete notification log entries
 CREATE POLICY "notification_log_delete_editor_only"
   ON notification_log FOR DELETE
   TO authenticated
@@ -713,14 +639,11 @@ DROP POLICY IF EXISTS "ai_reports_insert_editor_only" ON ai_reports;
 DROP POLICY IF EXISTS "ai_reports_update_editor_only" ON ai_reports;
 DROP POLICY IF EXISTS "ai_reports_delete_editor_only" ON ai_reports;
 
--- All authenticated users can read ai_reports
--- (Reporter Queue shows approved AI reports to reporters)
 CREATE POLICY "ai_reports_select_authenticated"
   ON ai_reports FOR SELECT
   TO authenticated
   USING (true);
 
--- Only editor/admin can create ai_reports (Ambient Scribe)
 CREATE POLICY "ai_reports_insert_editor_only"
   ON ai_reports FOR INSERT
   TO authenticated
@@ -728,7 +651,6 @@ CREATE POLICY "ai_reports_insert_editor_only"
     (SELECT role FROM profiles WHERE id = auth.uid()) IN ('editor', 'admin')
   );
 
--- Only editor/admin can update ai_reports (approve/reject)
 CREATE POLICY "ai_reports_update_editor_only"
   ON ai_reports FOR UPDATE
   TO authenticated
@@ -739,7 +661,6 @@ CREATE POLICY "ai_reports_update_editor_only"
     (SELECT role FROM profiles WHERE id = auth.uid()) IN ('editor', 'admin')
   );
 
--- Only editor/admin can delete ai_reports
 CREATE POLICY "ai_reports_delete_editor_only"
   ON ai_reports FOR DELETE
   TO authenticated
@@ -758,8 +679,6 @@ DROP POLICY IF EXISTS "admins_insert_admin_only" ON admins;
 DROP POLICY IF EXISTS "admins_update_admin_only" ON admins;
 DROP POLICY IF EXISTS "admins_delete_admin_only" ON admins;
 
--- Only admin role can read the admins table
--- (prevents editors/reporters from seeing admin records)
 CREATE POLICY "admins_select_admin_only"
   ON admins FOR SELECT
   TO authenticated
@@ -802,14 +721,11 @@ DROP POLICY IF EXISTS "app_settings_insert_editor_only" ON app_settings;
 DROP POLICY IF EXISTS "app_settings_update_editor_only" ON app_settings;
 DROP POLICY IF EXISTS "app_settings_delete_editor_only" ON app_settings;
 
--- All authenticated users can read app_settings
--- (date format / week start day used on every page)
 CREATE POLICY "app_settings_select_authenticated"
   ON app_settings FOR SELECT
   TO authenticated
   USING (true);
 
--- Only editor/admin can change app settings
 CREATE POLICY "app_settings_insert_editor_only"
   ON app_settings FOR INSERT
   TO authenticated
@@ -838,19 +754,325 @@ CREATE POLICY "app_settings_delete_editor_only"
 -- ----------------------------------------------------------------
 -- leave_filing_requests
 -- OLD/UNUSED TABLE — left WITHOUT RLS intentionally.
--- Not referenced anywhere in the app code. If this table is
--- ever used in future, RLS must be added following the same
--- pattern as leave_requests above.
 -- ----------------------------------------------------------------
 -- (No RLS changes applied to leave_filing_requests)
 
 
 -- ================================================================
--- VERIFICATION QUERY
--- Run after applying this migration to confirm RLS is enabled
--- on all 11 tables with the expected policy counts
--- (4 policies each, except profiles which has 3)
 -- ================================================================
+--                  TEAM CHAT FEATURE
+--   Added in Session 9 (continued) — full enterprise chat with
+--   DMs, group channels, reactions, replies, pins, typing
+--   indicators, online status, file attachments, search.
+--   No predefined/seeded channels — users create groups manually.
+-- ================================================================
+-- ================================================================
+
+-- ----------------------------------------------------------------
+-- chat_channels
+-- ----------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS chat_channels (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name TEXT,
+  description TEXT,
+  type TEXT NOT NULL CHECK (type IN ('dm', 'group')),
+  created_by UUID REFERENCES reporters(id),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  is_archived BOOLEAN DEFAULT FALSE
+);
+
+-- ----------------------------------------------------------------
+-- chat_channel_members
+-- ----------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS chat_channel_members (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  channel_id UUID REFERENCES chat_channels(id) ON DELETE CASCADE,
+  reporter_id UUID REFERENCES reporters(id) ON DELETE CASCADE,
+  joined_at TIMESTAMPTZ DEFAULT NOW(),
+  last_read_at TIMESTAMPTZ DEFAULT NOW(),
+  is_admin BOOLEAN DEFAULT FALSE,
+  UNIQUE(channel_id, reporter_id)
+);
+
+-- ----------------------------------------------------------------
+-- chat_messages
+-- Note: has TWO foreign keys to reporters (sender_id, pinned_by)
+-- Frontend must specify reporters!chat_messages_sender_id_fkey
+-- when joining to avoid PGRST201 ambiguous relationship error.
+-- ----------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS chat_messages (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  channel_id UUID REFERENCES chat_channels(id) ON DELETE CASCADE,
+  sender_id UUID REFERENCES reporters(id),
+  content TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ,
+  is_deleted BOOLEAN DEFAULT FALSE,
+  reply_to_id UUID REFERENCES chat_messages(id),
+  is_pinned BOOLEAN DEFAULT FALSE,
+  pinned_by UUID REFERENCES reporters(id),
+  pinned_at TIMESTAMPTZ
+);
+
+-- ----------------------------------------------------------------
+-- chat_reactions
+-- ----------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS chat_reactions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  message_id UUID REFERENCES chat_messages(id) ON DELETE CASCADE,
+  reporter_id UUID REFERENCES reporters(id),
+  emoji TEXT NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(message_id, reporter_id, emoji)
+);
+
+-- ----------------------------------------------------------------
+-- chat_typing
+-- ----------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS chat_typing (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  channel_id UUID REFERENCES chat_channels(id) ON DELETE CASCADE,
+  reporter_id UUID REFERENCES reporters(id),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(channel_id, reporter_id)
+);
+
+-- ----------------------------------------------------------------
+-- chat_attachments
+-- ----------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS chat_attachments (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  message_id UUID REFERENCES chat_messages(id) ON DELETE CASCADE,
+  file_url TEXT NOT NULL,
+  file_name TEXT NOT NULL,
+  file_type TEXT,
+  file_size INTEGER,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ----------------------------------------------------------------
+-- Indexes
+-- ----------------------------------------------------------------
+CREATE INDEX IF NOT EXISTS idx_chat_messages_channel ON chat_messages(channel_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_chat_members_reporter ON chat_channel_members(reporter_id);
+CREATE INDEX IF NOT EXISTS idx_chat_members_channel ON chat_channel_members(channel_id);
+CREATE INDEX IF NOT EXISTS idx_chat_reactions_message ON chat_reactions(message_id);
+CREATE INDEX IF NOT EXISTS idx_chat_typing_channel ON chat_typing(channel_id);
+
+-- ----------------------------------------------------------------
+-- Online status column on reporters
+-- ----------------------------------------------------------------
+ALTER TABLE reporters ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ;
+
+-- ----------------------------------------------------------------
+-- Enable Realtime on chat tables
+-- ----------------------------------------------------------------
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables
+    WHERE pubname = 'supabase_realtime' AND tablename = 'chat_messages'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE chat_messages;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables
+    WHERE pubname = 'supabase_realtime' AND tablename = 'chat_typing'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE chat_typing;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables
+    WHERE pubname = 'supabase_realtime' AND tablename = 'chat_reactions'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE chat_reactions;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables
+    WHERE pubname = 'supabase_realtime' AND tablename = 'chat_channel_members'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE chat_channel_members;
+  END IF;
+END $$;
+
+-- ----------------------------------------------------------------
+-- STORAGE BUCKET: chat-files
+-- ----------------------------------------------------------------
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('chat-files', 'chat-files', true)
+ON CONFLICT (id) DO NOTHING;
+
+DROP POLICY IF EXISTS "chat_files_open_access" ON storage.objects;
+CREATE POLICY "chat_files_open_access" ON storage.objects
+FOR ALL USING (bucket_id = 'chat-files')
+WITH CHECK (bucket_id = 'chat-files');
+
+-- ----------------------------------------------------------------
+-- Helper function to avoid RLS infinite recursion on
+-- chat_channel_members. A naive policy that queries
+-- chat_channel_members from within its own policy causes
+-- Postgres to recurse infinitely (500 Internal Server Error).
+-- SECURITY DEFINER bypasses RLS inside this function only.
+-- ----------------------------------------------------------------
+CREATE OR REPLACE FUNCTION is_channel_member(p_channel_id uuid, p_reporter_id uuid)
+RETURNS boolean AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM chat_channel_members
+    WHERE channel_id = p_channel_id AND reporter_id = p_reporter_id
+  );
+$$ LANGUAGE sql SECURITY DEFINER STABLE;
+
+-- ----------------------------------------------------------------
+-- RLS: chat_channels
+-- ----------------------------------------------------------------
+ALTER TABLE chat_channels ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "channels_select_members" ON chat_channels;
+DROP POLICY IF EXISTS "channels_insert_authenticated" ON chat_channels;
+DROP POLICY IF EXISTS "channels_update_members" ON chat_channels;
+
+CREATE POLICY "channels_select_members"
+  ON chat_channels FOR SELECT
+  TO authenticated
+  USING (
+    is_channel_member(id, (SELECT reporter_id FROM profiles WHERE id = auth.uid()))
+    OR (SELECT role FROM profiles WHERE id = auth.uid()) IN ('editor', 'admin')
+  );
+
+CREATE POLICY "channels_insert_authenticated"
+  ON chat_channels FOR INSERT
+  TO authenticated
+  WITH CHECK (true);
+
+CREATE POLICY "channels_update_members"
+  ON chat_channels FOR UPDATE
+  TO authenticated
+  USING (
+    created_by = (SELECT reporter_id FROM profiles WHERE id = auth.uid())
+    OR (SELECT role FROM profiles WHERE id = auth.uid()) IN ('editor', 'admin')
+  );
+
+-- ----------------------------------------------------------------
+-- RLS: chat_channel_members
+-- ----------------------------------------------------------------
+ALTER TABLE chat_channel_members ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "members_select" ON chat_channel_members;
+DROP POLICY IF EXISTS "members_insert_authenticated" ON chat_channel_members;
+DROP POLICY IF EXISTS "members_update_own" ON chat_channel_members;
+
+CREATE POLICY "members_select"
+  ON chat_channel_members FOR SELECT
+  TO authenticated
+  USING (
+    is_channel_member(channel_id, (SELECT reporter_id FROM profiles WHERE id = auth.uid()))
+    OR (SELECT role FROM profiles WHERE id = auth.uid()) IN ('editor', 'admin')
+  );
+
+CREATE POLICY "members_insert_authenticated"
+  ON chat_channel_members FOR INSERT
+  TO authenticated
+  WITH CHECK (true);
+
+CREATE POLICY "members_update_own"
+  ON chat_channel_members FOR UPDATE
+  TO authenticated
+  USING (
+    reporter_id = (SELECT reporter_id FROM profiles WHERE id = auth.uid())
+    OR (SELECT role FROM profiles WHERE id = auth.uid()) IN ('editor', 'admin')
+  );
+
+-- ----------------------------------------------------------------
+-- RLS: chat_messages
+-- ----------------------------------------------------------------
+ALTER TABLE chat_messages ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "messages_select_members" ON chat_messages;
+DROP POLICY IF EXISTS "messages_insert_members" ON chat_messages;
+DROP POLICY IF EXISTS "messages_update_own" ON chat_messages;
+
+CREATE POLICY "messages_select_members"
+  ON chat_messages FOR SELECT
+  TO authenticated
+  USING (
+    is_channel_member(channel_id, (SELECT reporter_id FROM profiles WHERE id = auth.uid()))
+  );
+
+CREATE POLICY "messages_insert_members"
+  ON chat_messages FOR INSERT
+  TO authenticated
+  WITH CHECK (
+    is_channel_member(channel_id, (SELECT reporter_id FROM profiles WHERE id = auth.uid()))
+  );
+
+CREATE POLICY "messages_update_own"
+  ON chat_messages FOR UPDATE
+  TO authenticated
+  USING (
+    sender_id = (SELECT reporter_id FROM profiles WHERE id = auth.uid())
+    OR (SELECT role FROM profiles WHERE id = auth.uid()) IN ('editor', 'admin')
+  );
+
+-- ----------------------------------------------------------------
+-- RLS: chat_reactions
+-- ----------------------------------------------------------------
+ALTER TABLE chat_reactions ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "reactions_select" ON chat_reactions;
+DROP POLICY IF EXISTS "reactions_insert" ON chat_reactions;
+DROP POLICY IF EXISTS "reactions_delete_own" ON chat_reactions;
+
+CREATE POLICY "reactions_select"
+  ON chat_reactions FOR SELECT
+  TO authenticated
+  USING (true);
+
+CREATE POLICY "reactions_insert"
+  ON chat_reactions FOR INSERT
+  TO authenticated
+  WITH CHECK (reporter_id = (SELECT reporter_id FROM profiles WHERE id = auth.uid()));
+
+CREATE POLICY "reactions_delete_own"
+  ON chat_reactions FOR DELETE
+  TO authenticated
+  USING (reporter_id = (SELECT reporter_id FROM profiles WHERE id = auth.uid()));
+
+-- ----------------------------------------------------------------
+-- RLS: chat_typing
+-- ----------------------------------------------------------------
+ALTER TABLE chat_typing ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "typing_all" ON chat_typing;
+
+CREATE POLICY "typing_all"
+  ON chat_typing FOR ALL
+  TO authenticated
+  USING (true)
+  WITH CHECK (true);
+
+-- ----------------------------------------------------------------
+-- RLS: chat_attachments
+-- ----------------------------------------------------------------
+ALTER TABLE chat_attachments ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "attachments_select" ON chat_attachments;
+DROP POLICY IF EXISTS "attachments_insert" ON chat_attachments;
+
+CREATE POLICY "attachments_select"
+  ON chat_attachments FOR SELECT
+  TO authenticated
+  USING (true);
+
+CREATE POLICY "attachments_insert"
+  ON chat_attachments FOR INSERT
+  TO authenticated
+  WITH CHECK (true);
+
+
+-- ================================================================
+-- VERIFICATION QUERIES
+-- ================================================================
+-- Core tables (11) — RLS enabled with expected policy counts
 -- SELECT
 --   tablename,
 --   rowsecurity AS rls_enabled,
@@ -863,3 +1085,19 @@ CREATE POLICY "app_settings_delete_editor_only"
 --   'notification_log', 'ai_reports', 'admins', 'app_settings'
 -- )
 -- ORDER BY tablename;
+
+-- Chat tables (6) — RLS enabled with expected policy counts
+-- SELECT
+--   tablename,
+--   rowsecurity AS rls_enabled,
+--   (SELECT COUNT(*) FROM pg_policies WHERE tablename = t.tablename) AS policy_count
+-- FROM pg_tables t
+-- WHERE schemaname = 'public'
+-- AND tablename LIKE 'chat_%'
+-- ORDER BY tablename;
+
+-- Confirm helper function exists
+-- SELECT proname FROM pg_proc WHERE proname = 'is_channel_member';
+
+-- Confirm chat-files storage bucket exists
+-- SELECT id, name, public FROM storage.buckets WHERE id = 'chat-files';
