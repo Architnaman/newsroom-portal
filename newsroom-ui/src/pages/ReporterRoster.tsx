@@ -39,7 +39,7 @@ export default function ReporterRoster() {
     const [{ data: r }, { data: a }, { data: ass }, { data: l }, { data: h }] = await Promise.all([
       supabase.from('reporters').select('*').eq('status', 'active').order('name'),
       supabase.from('availability').select('*').eq('week_start_date', weekStart),
-      supabase.from('assignments').select('reporter_id').eq('is_active', true),
+      supabase.from('assignments').select('reporter_id, stories(status, deadline)').eq('is_active', true),
       supabase.from('leave_requests').select('*').in('status', ['pending', 'acknowledged']),
       supabase.from('holidays').select('*'),
     ])
@@ -58,8 +58,14 @@ export default function ReporterRoster() {
   availability.forEach(a => { availMap[a.reporter_id] = a.available_days })
 
   const countMap: Record<string, number> = {}
-  assignments.forEach(a => { countMap[a.reporter_id] = (countMap[a.reporter_id] || 0) + 1 })
-
+assignments.forEach(a => {
+  const story = (a as any).stories
+  // Only count stories that are actively in progress
+  // (not yet filed or published) — resets naturally each week
+  if (story && !['filed', 'published'].includes(story.status)) {
+    countMap[a.reporter_id] = (countMap[a.reporter_id] || 0) + 1
+  }
+})
   const leaveMap: Record<string, { date: string, status: string }[]> = {}
   leaves.forEach(l => {
     if (!leaveMap[l.reporter_id]) leaveMap[l.reporter_id] = []
