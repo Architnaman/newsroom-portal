@@ -59,6 +59,10 @@ export default function ChatPage() {
   const [activeMenuFor, setActiveMenuFor] = useState<string | null>(null)
   const [showMobileChat, setShowMobileChat] = useState(false)
   const [showInputEmoji, setShowInputEmoji] = useState(false)
+  // ── Mention states ──
+  const [mentionSearch, setMentionSearch] = useState('')
+  const [showMentions, setShowMentions] = useState(false)
+  const [mentionIndex, setMentionIndex] = useState(0)
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -92,7 +96,6 @@ export default function ChatPage() {
     })
     setMembersByChannel(memberMap)
 
-    // Last message per channel
     const { data: recentMsgs } = await supabase
       .from('chat_messages')
       .select('channel_id, content, created_at, sender_id, is_deleted')
@@ -132,7 +135,7 @@ export default function ChatPage() {
     await supabase.from('reporters').update({ last_seen_at: new Date().toISOString() }).eq('id', reporterId)
   }
 
-  // ── Load messages for active channel ──
+  // ── Load messages ──
   async function loadMessages(channelId: string) {
     const { data: msgs } = await supabase
       .from('chat_messages')
@@ -158,7 +161,6 @@ export default function ChatPage() {
       setReactions({})
     }
 
-    // Mark as read
     await supabase.from('chat_channel_members')
       .update({ last_read_at: new Date().toISOString() })
       .eq('channel_id', channelId)
@@ -171,6 +173,8 @@ export default function ChatPage() {
       setReplyingTo(null)
       setEditingId(null)
       setShowInputEmoji(false)
+      setShowMentions(false)
+      setInput('')
     }
   }, [activeChannelId])
 
@@ -210,18 +214,45 @@ export default function ChatPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  // ── Typing indicator ──
+  // ── Typing indicator + mention detection ──
   async function handleTyping(value: string) {
     setInput(value)
     if (!activeChannelId || !reporterId) return
+
+    // Mention detection — only in group channels
+    if (activeChannel?.type === 'group') {
+      const lastAt = value.lastIndexOf('@')
+      if (lastAt !== -1) {
+        const afterAt = value.slice(lastAt + 1)
+        if (!afterAt.includes(' ')) {
+          setMentionSearch(afterAt.toLowerCase())
+          setShowMentions(true)
+          setMentionIndex(0)
+        } else {
+          setShowMentions(false)
+        }
+      } else {
+        setShowMentions(false)
+      }
+    }
+
     await supabase.from('chat_typing').upsert({
       channel_id: activeChannelId, reporter_id: reporterId, updated_at: new Date().toISOString()
     }, { onConflict: 'channel_id,reporter_id' })
   }
 
+  // ── Insert mention into input ──
+  function insertMention(name: string) {
+    const lastAt = input.lastIndexOf('@')
+    setInput(input.slice(0, lastAt) + `@${name} `)
+    setShowMentions(false)
+    setMentionSearch('')
+  }
+
   // ── Send message ──
   async function sendMessage() {
     if (!input.trim() || !activeChannelId || !reporterId) return
+    setShowMentions(false)
     await supabase.from('chat_messages').insert({
       channel_id: activeChannelId,
       sender_id: reporterId,
@@ -286,20 +317,13 @@ export default function ChatPage() {
       const { error: upErr } = await supabase.storage.from('chat-files').upload(path, file)
       if (upErr) throw upErr
       const { data: urlData } = supabase.storage.from('chat-files').getPublicUrl(path)
-
       const { data: msgData, error: msgErr } = await supabase.from('chat_messages').insert({
-        channel_id: activeChannelId,
-        sender_id: reporterId,
-        content: input.trim() || '',
+        channel_id: activeChannelId, sender_id: reporterId, content: input.trim() || '',
       }).select().single()
       if (msgErr) throw msgErr
-
       await supabase.from('chat_attachments').insert({
-        message_id: msgData.id,
-        file_url: urlData.publicUrl,
-        file_name: file.name,
-        file_type: file.type,
-        file_size: file.size,
+        message_id: msgData.id, file_url: urlData.publicUrl,
+        file_name: file.name, file_type: file.type, file_size: file.size,
       })
       setInput('')
       loadMessages(activeChannelId)
@@ -312,19 +336,15 @@ export default function ChatPage() {
 
   // ── New DM ──
   async function startDM(otherId: string) {
-    // Check existing DM channel
     for (const ch of channels) {
       if (ch.type === 'dm') {
         const members = membersByChannel[ch.id] || []
         const ids = members.map((m: any) => m.reporter_id)
         if (ids.includes(otherId) && ids.includes(reporterId)) {
-          setActiveChannelId(ch.id)
-          setShowMobileChat(true)
-          return
+          setActiveChannelId(ch.id); setShowMobileChat(true); return
         }
       }
     }
-    // Create new DM channel
     const { data: newChannel } = await supabase.from('chat_channels').insert({
       type: 'dm', created_by: reporterId
     }).select().single()
@@ -350,9 +370,7 @@ export default function ChatPage() {
       ...newGroupMembers.map(id => ({ channel_id: newChannel.id, reporter_id: id, is_admin: false }))
     ]
     await supabase.from('chat_channel_members').insert(memberInserts)
-    setShowNewGroup(false)
-    setNewGroupName('')
-    setNewGroupMembers([])
+    setShowNewGroup(false); setNewGroupName(''); setNewGroupMembers([])
     await loadChannels()
     setActiveChannelId(newChannel.id)
     setShowMobileChat(true)
@@ -365,10 +383,7 @@ export default function ChatPage() {
   }
 
   function getChannelName(channel: any) {
-    if (channel.type === 'dm') {
-      const other = getOtherMember(channel)
-      return other?.name || 'Unknown'
-    }
+    if (channel.type === 'dm') return getOtherMember(channel)?.name || 'Unknown'
     return channel.name
   }
 
@@ -389,45 +404,36 @@ export default function ChatPage() {
   const activeMembers = activeChannelId ? (membersByChannel[activeChannelId] || []) : []
   const onlineCount = activeMembers.filter((m: any) => isOnline(m.reporters?.last_seen_at)).length
   const pinnedMessages = messages.filter(m => m.is_pinned)
-
   const filteredMessages = searchTerm
     ? messages.filter(m => m.content?.toLowerCase().includes(searchTerm.toLowerCase()))
     : messages
-
   const dmChannels = channels.filter(c => c.type === 'dm')
   const groupChannels = channels.filter(c => c.type === 'group')
 
-  // ── Styles ──
+  // ── Mention pool: group members only, filtered by search ──
+  const mentionPool = (activeChannel?.type === 'group' && showMentions)
+    ? activeMembers
+        .filter((m: any) => m.reporter_id !== reporterId)
+        .map((m: any) => m.reporters)
+        .filter(Boolean)
+        .filter((p: any) => p.name?.toLowerCase().includes(mentionSearch))
+    : []
+
   const sidebarWidth = isTablet ? '240px' : '300px'
 
   return (
     <div style={{ minHeight: '100vh', background: t.bgPage, fontFamily: '"Inter", "DM Mono", "Courier New", monospace', color: t.textPrimary }}>
       <Navbar />
       <div style={{
-        display: 'flex',
-        height: 'calc(100vh - 64px)',
-        maxWidth: '1400px',
-        margin: '0 auto',
-        border: `1px solid ${t.borderCard}`,
-        borderRadius: isMobile ? '0' : '10px',
-        overflow: 'hidden',
-        boxShadow: t.shadowCard,
-        marginTop: isMobile ? '0' : '12px',
-        marginBottom: isMobile ? '0' : '12px',
+        display: 'flex', height: 'calc(100vh - 64px)', maxWidth: '1400px', margin: '0 auto',
+        border: `1px solid ${t.borderCard}`, borderRadius: isMobile ? '0' : '10px',
+        overflow: 'hidden', boxShadow: t.shadowCard,
+        marginTop: isMobile ? '0' : '12px', marginBottom: isMobile ? '0' : '12px',
       }}>
 
         {/* ── SIDEBAR ── */}
         {(!isMobile || !showMobileChat) && (
-          <div style={{
-            width: isMobile ? '100%' : sidebarWidth,
-            flexShrink: 0,
-            borderRight: isMobile ? 'none' : `1px solid ${t.borderCard}`,
-            background: t.bgCard,
-            display: 'flex',
-            flexDirection: 'column',
-            overflow: 'hidden',
-          }}>
-            {/* Header */}
+          <div style={{ width: isMobile ? '100%' : sidebarWidth, flexShrink: 0, borderRight: isMobile ? 'none' : `1px solid ${t.borderCard}`, background: t.bgCard, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             <div style={{ padding: '16px', borderBottom: `1px solid ${t.borderCard}` }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
                 <h1 style={{ margin: 0, fontSize: '18px', fontWeight: '700', color: t.textPrimary }}>Messages</h1>
@@ -439,9 +445,7 @@ export default function ChatPage() {
               <p style={{ margin: 0, fontSize: '12px', color: t.textMuted }}>Signed in as {userName}</p>
             </div>
 
-            {/* Channel + DM list */}
             <div style={{ flex: 1, overflowY: 'auto', padding: '8px' }}>
-
               {groupChannels.length > 0 && (
                 <>
                   <div style={{ padding: '8px 8px 4px', fontSize: '11px', fontWeight: '700', color: t.textMuted, letterSpacing: '0.5px' }}>CHANNELS</div>
@@ -449,25 +453,14 @@ export default function ChatPage() {
                     const last = lastMessages[ch.id]
                     const unread = hasUnread(ch)
                     return (
-                      <div key={ch.id}
-                        onClick={() => { setActiveChannelId(ch.id); setShowMobileChat(true) }}
-                        style={{
-                          padding: '10px 10px', borderRadius: '8px', cursor: 'pointer', marginBottom: '2px',
-                          background: activeChannelId === ch.id ? t.accentBg : 'transparent',
-                          border: activeChannelId === ch.id ? `1px solid ${t.accentBorder}` : '1px solid transparent',
-                        }}>
+                      <div key={ch.id} onClick={() => { setActiveChannelId(ch.id); setShowMobileChat(true) }}
+                        style={{ padding: '10px', borderRadius: '8px', cursor: 'pointer', marginBottom: '2px', background: activeChannelId === ch.id ? t.accentBg : 'transparent', border: activeChannelId === ch.id ? `1px solid ${t.accentBorder}` : '1px solid transparent' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
-                            <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: t.accentBg, border: `1px solid ${t.accentBorder}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px', fontWeight: '700', color: t.accent, flexShrink: 0 }}>
-                              #
-                            </div>
+                            <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: t.accentBg, border: `1px solid ${t.accentBorder}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px', fontWeight: '700', color: t.accent, flexShrink: 0 }}>#</div>
                             <div style={{ minWidth: 0 }}>
                               <div style={{ fontSize: '13px', fontWeight: unread ? '700' : '600', color: t.textPrimary, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{ch.name}</div>
-                              {last && (
-                                <div style={{ fontSize: '11px', color: t.textMuted, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '160px' }}>
-                                  {last.is_deleted ? 'Message deleted' : last.content}
-                                </div>
-                              )}
+                              {last && <div style={{ fontSize: '11px', color: t.textMuted, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '160px' }}>{last.is_deleted ? 'Message deleted' : last.content}</div>}
                             </div>
                           </div>
                           {unread && <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: t.accent, flexShrink: 0 }} />}
@@ -485,28 +478,17 @@ export default function ChatPage() {
                 const last = lastMessages[ch.id]
                 const unread = hasUnread(ch)
                 return (
-                  <div key={ch.id}
-                    onClick={() => { setActiveChannelId(ch.id); setShowMobileChat(true) }}
-                    style={{
-                      padding: '10px 10px', borderRadius: '8px', cursor: 'pointer', marginBottom: '2px',
-                      background: activeChannelId === ch.id ? t.accentBg : 'transparent',
-                      border: activeChannelId === ch.id ? `1px solid ${t.accentBorder}` : '1px solid transparent',
-                    }}>
+                  <div key={ch.id} onClick={() => { setActiveChannelId(ch.id); setShowMobileChat(true) }}
+                    style={{ padding: '10px', borderRadius: '8px', cursor: 'pointer', marginBottom: '2px', background: activeChannelId === ch.id ? t.accentBg : 'transparent', border: activeChannelId === ch.id ? `1px solid ${t.accentBorder}` : '1px solid transparent' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
                         <div style={{ position: 'relative', flexShrink: 0 }}>
-                          <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: t.bgInput, border: `1px solid ${t.borderCard}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '13px', fontWeight: '700', color: t.textSecondary }}>
-                            {other?.name?.charAt(0) || '?'}
-                          </div>
+                          <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: t.bgInput, border: `1px solid ${t.borderCard}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '13px', fontWeight: '700', color: t.textSecondary }}>{other?.name?.charAt(0) || '?'}</div>
                           <div style={{ position: 'absolute', bottom: '-1px', right: '-1px', width: '10px', height: '10px', borderRadius: '50%', background: online ? t.success : t.textDisabled, border: `2px solid ${t.bgCard}` }} />
                         </div>
                         <div style={{ minWidth: 0 }}>
                           <div style={{ fontSize: '13px', fontWeight: unread ? '700' : '600', color: t.textPrimary, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{other?.name || 'Unknown'}</div>
-                          {last && (
-                            <div style={{ fontSize: '11px', color: t.textMuted, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '160px' }}>
-                              {last.is_deleted ? 'Message deleted' : last.content}
-                            </div>
-                          )}
+                          {last && <div style={{ fontSize: '11px', color: t.textMuted, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '160px' }}>{last.is_deleted ? 'Message deleted' : last.content}</div>}
                         </div>
                       </div>
                       {unread && <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: t.accent, flexShrink: 0 }} />}
@@ -520,11 +502,9 @@ export default function ChatPage() {
                 const online = isOnline(p.last_seen_at)
                 return (
                   <div key={p.id} onClick={() => startDM(p.id)}
-                    style={{ padding: '10px 10px', borderRadius: '8px', cursor: 'pointer', marginBottom: '2px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    style={{ padding: '10px', borderRadius: '8px', cursor: 'pointer', marginBottom: '2px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <div style={{ position: 'relative', flexShrink: 0 }}>
-                      <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: t.bgInput, border: `1px solid ${t.borderCard}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: '700', color: t.textSecondary }}>
-                        {p.name?.charAt(0)}
-                      </div>
+                      <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: t.bgInput, border: `1px solid ${t.borderCard}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: '700', color: t.textSecondary }}>{p.name?.charAt(0)}</div>
                       <div style={{ position: 'absolute', bottom: '-1px', right: '-1px', width: '9px', height: '9px', borderRadius: '50%', background: online ? t.success : t.textDisabled, border: `2px solid ${t.bgCard}` }} />
                     </div>
                     <div style={{ fontSize: '13px', color: t.textSecondary, fontWeight: '500' }}>{p.name}</div>
@@ -548,9 +528,7 @@ export default function ChatPage() {
                 <div style={{ padding: '12px 16px', borderBottom: `1px solid ${t.borderCard}`, background: t.bgCard, display: 'flex', alignItems: 'center', gap: '10px' }}>
                   {isMobile && (
                     <button onClick={() => setShowMobileChat(false)}
-                      style={{ background: 'none', border: 'none', color: t.textSecondary, fontSize: '20px', cursor: 'pointer', padding: '4px', minWidth: '36px', minHeight: '36px' }}>
-                      ‹
-                    </button>
+                      style={{ background: 'none', border: 'none', color: t.textSecondary, fontSize: '20px', cursor: 'pointer', padding: '4px', minWidth: '36px', minHeight: '36px' }}>‹</button>
                   )}
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: '14px', fontWeight: '700', color: t.textPrimary }}>
@@ -571,13 +549,8 @@ export default function ChatPage() {
                 {/* Search bar */}
                 {searchOpen && (
                   <div style={{ padding: '8px 16px', borderBottom: `1px solid ${t.borderCard}`, background: t.bgCard }}>
-                    <input
-                      value={searchTerm}
-                      onChange={e => setSearchTerm(e.target.value)}
-                      placeholder="Search messages..."
-                      autoFocus
-                      style={{ width: '100%', padding: '8px 12px', background: t.bgInput, border: `1px solid ${t.borderInput}`, borderRadius: '6px', color: t.textPrimary, fontSize: isMobile ? '16px' : '13px', outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }}
-                    />
+                    <input value={searchTerm} onChange={e => setSearchTerm(e.target.value)} placeholder="Search messages..." autoFocus
+                      style={{ width: '100%', padding: '8px 12px', background: t.bgInput, border: `1px solid ${t.borderInput}`, borderRadius: '6px', color: t.textPrimary, fontSize: isMobile ? '16px' : '13px', outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }} />
                   </div>
                 )}
 
@@ -606,6 +579,16 @@ export default function ChatPage() {
                       m.reporter_id !== reporterId && new Date(m.last_read_at) >= new Date(msg.created_at)
                     )
 
+                    // Highlight @mentions in message content
+                    function renderContent(content: string) {
+                      const parts = content.split(/(@\w[\w\s]*)/g)
+                      return parts.map((part, i) =>
+                        part.startsWith('@')
+                          ? <span key={i} style={{ color: isMine ? t.accentText : t.accent, fontWeight: '700', background: isMine ? 'rgba(255,255,255,0.2)' : t.accentBg, borderRadius: '3px', padding: '0 2px' }}>{part}</span>
+                          : part
+                      )
+                    }
+
                     return (
                       <div key={msg.id}>
                         {showDateDivider && (
@@ -616,47 +599,23 @@ export default function ChatPage() {
                         <div style={{ display: 'flex', justifyContent: isMine ? 'flex-end' : 'flex-start', marginBottom: '2px' }}>
                           <div style={{ maxWidth: isMobile ? '85%' : '65%', position: 'relative' }}
                             onMouseEnter={() => !isMobile && setActiveMenuFor(msg.id)}
-                            onMouseLeave={() => !isMobile && setActiveMenuFor(null)}
-                          >
+                            onMouseLeave={() => !isMobile && setActiveMenuFor(null)}>
                             {!isMine && (
                               <div style={{ fontSize: '11px', color: t.textMuted, fontWeight: '600', marginBottom: '2px', marginLeft: '4px' }}>{msg.reporters?.name}</div>
                             )}
-
-                            <div style={{
-                              background: isMine ? t.accent : t.bgCard,
-                              color: isMine ? t.accentText : t.textPrimary,
-                              border: isMine ? 'none' : `1px solid ${t.borderCard}`,
-                              borderRadius: '12px',
-                              padding: '8px 12px',
-                              position: 'relative',
-                            }}>
-                              {/* Pin indicator */}
-                              {msg.is_pinned && (
-                                <div style={{ fontSize: '10px', marginBottom: '4px', opacity: 0.8 }}>📌 Pinned</div>
-                              )}
-
-                              {/* Reply preview */}
+                            <div style={{ background: isMine ? t.accent : t.bgCard, color: isMine ? t.accentText : t.textPrimary, border: isMine ? 'none' : `1px solid ${t.borderCard}`, borderRadius: '12px', padding: '8px 12px', position: 'relative' }}>
+                              {msg.is_pinned && <div style={{ fontSize: '10px', marginBottom: '4px', opacity: 0.8 }}>📌 Pinned</div>}
                               {repliedMsg && (
-                                <div style={{
-                                  borderLeft: `3px solid ${isMine ? t.accentText : t.accent}`,
-                                  paddingLeft: '8px', marginBottom: '6px', fontSize: '11px',
-                                  opacity: 0.75, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'
-                                }}>
+                                <div style={{ borderLeft: `3px solid ${isMine ? t.accentText : t.accent}`, paddingLeft: '8px', marginBottom: '6px', fontSize: '11px', opacity: 0.75, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                   <div style={{ fontWeight: '700' }}>{repliedMsg.reporters?.name}</div>
                                   <div>{repliedMsg.is_deleted ? 'Message deleted' : repliedMsg.content}</div>
                                 </div>
                               )}
-
-                              {/* Editing mode */}
                               {editingId === msg.id ? (
                                 <div>
-                                  <input
-                                    value={editText}
-                                    onChange={e => setEditText(e.target.value)}
+                                  <input value={editText} onChange={e => setEditText(e.target.value)}
                                     onKeyDown={e => { if (e.key === 'Enter') saveEdit(); if (e.key === 'Escape') setEditingId(null) }}
-                                    autoFocus
-                                    style={{ width: '100%', padding: '4px 8px', borderRadius: '4px', border: `1px solid ${t.borderInput}`, fontSize: isMobile ? '16px' : '13px', fontFamily: 'inherit', boxSizing: 'border-box', background: t.bgInput, color: t.textPrimary }}
-                                  />
+                                    autoFocus style={{ width: '100%', padding: '4px 8px', borderRadius: '4px', border: `1px solid ${t.borderInput}`, fontSize: isMobile ? '16px' : '13px', fontFamily: 'inherit', boxSizing: 'border-box', background: t.bgInput, color: t.textPrimary }} />
                                   <div style={{ display: 'flex', gap: '6px', marginTop: '4px' }}>
                                     <button onClick={saveEdit} style={{ fontSize: '10px', padding: '2px 8px', background: t.success, border: 'none', borderRadius: '4px', color: '#fff', cursor: 'pointer', fontFamily: 'inherit' }}>SAVE</button>
                                     <button onClick={() => setEditingId(null)} style={{ fontSize: '10px', padding: '2px 8px', background: 'transparent', border: `1px solid ${t.borderCard}`, borderRadius: '4px', color: t.textMuted, cursor: 'pointer', fontFamily: 'inherit' }}>CANCEL</button>
@@ -664,11 +623,9 @@ export default function ChatPage() {
                                 </div>
                               ) : (
                                 <div style={{ fontSize: '13px', lineHeight: 1.4, wordBreak: 'break-word', fontStyle: msg.is_deleted ? 'italic' : 'normal', opacity: msg.is_deleted ? 0.6 : 1 }}>
-                                  {msg.is_deleted ? 'Message deleted' : msg.content}
+                                  {msg.is_deleted ? 'Message deleted' : renderContent(msg.content || '')}
                                 </div>
                               )}
-
-                              {/* Attachments */}
                               {msg.chat_attachments?.map((att: any) => (
                                 <div key={att.id} style={{ marginTop: '6px' }}>
                                   {att.file_type?.startsWith('image/') ? (
@@ -681,7 +638,6 @@ export default function ChatPage() {
                                   )}
                                 </div>
                               ))}
-
                               <div style={{ fontSize: '10px', opacity: 0.6, marginTop: '4px', textAlign: 'right' }}>
                                 {formatTime(msg.created_at)}{msg.updated_at && !msg.is_deleted ? ' · edited' : ''}
                               </div>
@@ -692,42 +648,25 @@ export default function ChatPage() {
                               <div style={{ display: 'flex', gap: '4px', marginTop: '4px', flexWrap: 'wrap', justifyContent: isMine ? 'flex-end' : 'flex-start' }}>
                                 {Object.entries(groupedReactions).map(([emoji, list]) => (
                                   <div key={emoji} onClick={() => toggleReaction(msg.id, emoji)}
-                                    style={{
-                                      fontSize: '12px', padding: '2px 6px', borderRadius: '10px', cursor: 'pointer',
-                                      background: list.some((r: any) => r.reporter_id === reporterId) ? t.accentBg : t.bgCard,
-                                      border: `1px solid ${list.some((r: any) => r.reporter_id === reporterId) ? t.accentBorder : t.borderCard}`,
-                                    }}>
+                                    style={{ fontSize: '12px', padding: '2px 6px', borderRadius: '10px', cursor: 'pointer', background: list.some((r: any) => r.reporter_id === reporterId) ? t.accentBg : t.bgCard, border: `1px solid ${list.some((r: any) => r.reporter_id === reporterId) ? t.accentBorder : t.borderCard}` }}>
                                     {emoji} {list.length}
                                   </div>
                                 ))}
                               </div>
                             )}
 
-                            {/* Seen indicator */}
-                            {seenByOthers && (
-                              <div style={{ fontSize: '10px', color: t.textDisabled, textAlign: 'right', marginTop: '2px' }}>Seen</div>
-                            )}
+                            {seenByOthers && <div style={{ fontSize: '10px', color: t.textDisabled, textAlign: 'right', marginTop: '2px' }}>Seen</div>}
 
-                            {/* Message actions (hover on desktop, always visible icons on mobile via tap) */}
+                            {/* Message actions */}
                             {!msg.is_deleted && (activeMenuFor === msg.id || isMobile) && (
-                              <div style={{
-                                position: 'absolute', top: '-14px',
-                                [isMine ? 'right' : 'left']: '0',
-                                display: 'flex', gap: '2px', background: t.bgCard, border: `1px solid ${t.borderCard}`,
-                                borderRadius: '6px', padding: '2px', boxShadow: t.shadowCard, zIndex: 5,
-                              } as any}>
-                                <button onClick={() => setEmojiPickerFor(emojiPickerFor === msg.id ? null : msg.id)}
-                                  style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '13px', padding: '4px 6px' }}>😊</button>
-                                <button onClick={() => setReplyingTo(msg)}
-                                  style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '13px', padding: '4px 6px' }}>↩️</button>
-                                <button onClick={() => togglePin(msg)}
-                                  style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '13px', padding: '4px 6px' }}>📌</button>
+                              <div style={{ position: 'absolute', top: '-14px', [isMine ? 'right' : 'left']: '0', display: 'flex', gap: '2px', background: t.bgCard, border: `1px solid ${t.borderCard}`, borderRadius: '6px', padding: '2px', boxShadow: t.shadowCard, zIndex: 5 } as any}>
+                                <button onClick={() => setEmojiPickerFor(emojiPickerFor === msg.id ? null : msg.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '13px', padding: '4px 6px' }}>😊</button>
+                                <button onClick={() => setReplyingTo(msg)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '13px', padding: '4px 6px' }}>↩️</button>
+                                <button onClick={() => togglePin(msg)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '13px', padding: '4px 6px' }}>📌</button>
                                 {isMine && (
                                   <>
-                                    <button onClick={() => { setEditingId(msg.id); setEditText(msg.content) }}
-                                      style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '13px', padding: '4px 6px' }}>✏️</button>
-                                    <button onClick={() => deleteMessage(msg.id)}
-                                      style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '13px', padding: '4px 6px' }}>🗑️</button>
+                                    <button onClick={() => { setEditingId(msg.id); setEditText(msg.content) }} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '13px', padding: '4px 6px' }}>✏️</button>
+                                    <button onClick={() => deleteMessage(msg.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '13px', padding: '4px 6px' }}>🗑️</button>
                                   </>
                                 )}
                               </div>
@@ -735,12 +674,7 @@ export default function ChatPage() {
 
                             {/* Emoji picker for reactions */}
                             {emojiPickerFor === msg.id && (
-                              <div style={{
-                                position: 'absolute', top: '-50px',
-                                [isMine ? 'right' : 'left']: '0',
-                                display: 'flex', gap: '4px', background: t.bgCard, border: `1px solid ${t.borderCard}`,
-                                borderRadius: '8px', padding: '6px', boxShadow: t.shadow, zIndex: 6,
-                              } as any}>
+                              <div style={{ position: 'absolute', top: '-50px', [isMine ? 'right' : 'left']: '0', display: 'flex', gap: '4px', background: t.bgCard, border: `1px solid ${t.borderCard}`, borderRadius: '8px', padding: '6px', boxShadow: t.shadow, zIndex: 6 } as any}>
                                 {EMOJIS.map(e => (
                                   <span key={e} onClick={() => toggleReaction(msg.id, e)} style={{ cursor: 'pointer', fontSize: '16px' }}>{e}</span>
                                 ))}
@@ -775,19 +709,32 @@ export default function ChatPage() {
                 <div style={{ padding: isMobile ? '10px 12px' : '12px 16px', borderTop: `1px solid ${t.borderCard}`, background: t.bgCard, display: 'flex', gap: '8px', alignItems: 'flex-end', position: 'relative' }}>
                   <input ref={fileInputRef} type="file" onChange={handleFileUpload} style={{ display: 'none' }} />
 
-                  {/* Emoji picker panel for input */}
+                  {/* Emoji picker panel */}
                   {showInputEmoji && (
-                    <div style={{
-                      position: 'absolute', bottom: '100%', left: isMobile ? '8px' : '16px',
-                      marginBottom: '8px', display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '4px',
-                      background: t.bgCard, border: `1px solid ${t.borderCard}`, borderRadius: '10px',
-                      padding: '10px', boxShadow: t.shadow, zIndex: 10, width: isMobile ? '220px' : '260px',
-                    }}>
+                    <div style={{ position: 'absolute', bottom: '100%', left: isMobile ? '8px' : '16px', marginBottom: '8px', display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '4px', background: t.bgCard, border: `1px solid ${t.borderCard}`, borderRadius: '10px', padding: '10px', boxShadow: t.shadow, zIndex: 10, width: isMobile ? '220px' : '260px' }}>
                       {INPUT_EMOJIS.map(e => (
                         <button key={e} type="button" onClick={() => { setInput(prev => prev + e); setShowInputEmoji(false) }}
                           style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', padding: '6px', borderRadius: '6px' }}>
                           {e}
                         </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Mention dropdown — group chat only */}
+                  {showMentions && mentionPool.length > 0 && (
+                    <div style={{ position: 'absolute', bottom: '100%', left: isMobile ? '8px' : '16px', marginBottom: '8px', background: t.bgCard, border: `1px solid ${t.borderCard}`, borderRadius: '10px', boxShadow: t.shadow, zIndex: 11, minWidth: '200px', overflow: 'hidden' }}>
+                      <div style={{ padding: '6px 10px', fontSize: '10px', fontWeight: '700', color: t.textMuted, letterSpacing: '0.5px', borderBottom: `1px solid ${t.borderCard}` }}>
+                        GROUP MEMBERS
+                      </div>
+                      {mentionPool.map((p: any, idx: number) => (
+                        <div key={p.id} onClick={() => insertMention(p.name)}
+                          style={{ padding: '10px 14px', cursor: 'pointer', fontSize: '13px', fontWeight: '500', color: idx === mentionIndex ? t.accent : t.textPrimary, background: idx === mentionIndex ? t.accentBg : 'transparent', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <div style={{ width: '24px', height: '24px', borderRadius: '50%', background: t.accentBg, border: `1px solid ${t.accentBorder}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', fontWeight: '700', color: t.accent, flexShrink: 0 }}>
+                            {p.name?.charAt(0)}
+                          </div>
+                          {p.name}
+                        </div>
                       ))}
                     </div>
                   )}
@@ -805,21 +752,21 @@ export default function ChatPage() {
                   <textarea
                     value={input}
                     onChange={e => handleTyping(e.target.value)}
-                    onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage() } }}
-                    placeholder="Type a message..."
-                    rows={1}
-                    style={{
-                      flex: 1, padding: '10px 14px', background: t.bgInput, border: `1px solid ${t.borderInput}`,
-                      borderRadius: '8px', color: t.textPrimary, fontSize: isMobile ? '16px' : '13px',
-                      outline: 'none', fontFamily: 'inherit', resize: 'none', maxHeight: '100px', boxSizing: 'border-box',
+                    onKeyDown={e => {
+                      if (showMentions && mentionPool.length > 0) {
+                        if (e.key === 'ArrowDown') { e.preventDefault(); setMentionIndex(i => Math.min(i + 1, mentionPool.length - 1)); return }
+                        if (e.key === 'ArrowUp') { e.preventDefault(); setMentionIndex(i => Math.max(i - 1, 0)); return }
+                        if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); insertMention(mentionPool[mentionIndex]?.name); return }
+                        if (e.key === 'Escape') { setShowMentions(false); return }
+                      }
+                      if (e.key === 'Enter' && !e.shiftKey && !showMentions) { e.preventDefault(); sendMessage() }
                     }}
+                    placeholder={activeChannel?.type === 'group' ? 'Type a message... (@ to mention)' : 'Type a message...'}
+                    rows={1}
+                    style={{ flex: 1, padding: '10px 14px', background: t.bgInput, border: `1px solid ${t.borderInput}`, borderRadius: '8px', color: t.textPrimary, fontSize: isMobile ? '16px' : '13px', outline: 'none', fontFamily: 'inherit', resize: 'none', maxHeight: '100px', boxSizing: 'border-box' }}
                   />
                   <button onClick={sendMessage} disabled={!input.trim()}
-                    style={{
-                      padding: '10px 16px', background: input.trim() ? t.accent : t.textMuted, border: 'none',
-                      borderRadius: '8px', color: t.accentText, fontSize: '13px', fontWeight: '700',
-                      cursor: input.trim() ? 'pointer' : 'not-allowed', fontFamily: 'inherit', minHeight: '40px', flexShrink: 0,
-                    }}>
+                    style={{ padding: '10px 16px', background: input.trim() ? t.accent : t.textMuted, border: 'none', borderRadius: '8px', color: t.accentText, fontSize: '13px', fontWeight: '700', cursor: input.trim() ? 'pointer' : 'not-allowed', fontFamily: 'inherit', minHeight: '40px', flexShrink: 0 }}>
                     SEND
                   </button>
                 </div>
