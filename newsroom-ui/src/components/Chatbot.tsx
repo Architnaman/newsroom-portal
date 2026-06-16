@@ -134,7 +134,7 @@ export default function Chatbot() {
         weekEnd.setHours(23, 59, 59, 999)
         const storyDeadline = storyData?.deadline ? new Date(storyData.deadline + 'T00:00:00') : null
         if (storyDeadline && (storyDeadline < weekStart || storyDeadline > weekEnd)) {
-          return `⚠️ Cannot assign — this story's deadline (${storyData.deadline}) is outside the current week. Assignment via chatbot is only allowed for stories with deadlines within this week. Please assign it manually from the dashboard.`
+          return `⚠️ Cannot assign — this story's deadline (${storyData!.deadline}) is outside the current week. Assignment via chatbot is only allowed for stories with deadlines within this week. Please assign it manually from the dashboard.`
         }
         const { data: holidays } = await supabase.from("holidays").select("*")
         const isHoliday = storyData && (holidays || []).find((h: any) => h.date.split("T")[0] === storyData.deadline)
@@ -159,7 +159,7 @@ export default function Chatbot() {
         wEnd.setHours(23, 59, 59, 999)
         const overrideDeadline = overrideStory?.deadline ? new Date(overrideStory.deadline + 'T00:00:00') : null
         if (overrideDeadline && (overrideDeadline < wStart || overrideDeadline > wEnd)) {
-          return `⚠️ Cannot assign — this story's deadline (${overrideStory.deadline}) is outside the current week. Assignment via chatbot is only allowed for stories with deadlines within this week. Please assign it manually from the dashboard.`
+          return `⚠️ Cannot assign — this story's deadline (${overrideStory!.deadline}) is outside the current week. Assignment via chatbot is only allowed for stories with deadlines within this week. Please assign it manually from the dashboard.`
         }
         await supabase.from("assignments").update({ is_active: false }).eq("story_id", action.story_id)
         await supabase.from("assignments").insert({
