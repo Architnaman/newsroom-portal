@@ -7,6 +7,7 @@ import { useDateFormat } from '../context/DateFormatContext'
 import { useCollapse } from '../hooks/useCollapse'
 import SectionCard from '../components/SectionCard'
 import { useResponsive } from '../hooks/useResponsive'
+import { sendNotification } from '../lib/notifications'
 
 function getTodayStr(): string {
   return new Date().toISOString().split('T')[0]
@@ -55,6 +56,21 @@ export default function AvailabilityPage() {
   }
   const lsc: Record<string, string> = {
     pending: t.warning, acknowledged: t.success, rejected: t.danger
+  }
+
+  // ── Helper: get editor emails for notifications ──
+  async function getEditorEmails(): Promise<string[]> {
+    const { data } = await supabase
+      .from('profiles')
+      .select('reporter_id')
+      .eq('role', 'editor')
+    const reporterIds = (data || []).map((p: any) => p.reporter_id).filter(Boolean)
+    if (reporterIds.length === 0) return []
+    const { data: editorReporters } = await supabase
+      .from('reporters')
+      .select('email')
+      .in('id', reporterIds)
+    return (editorReporters || []).map((r: any) => r.email).filter(Boolean)
   }
 
   async function load() {
@@ -141,6 +157,22 @@ export default function AvailabilityPage() {
       notes: leaveForm.notes,
       status: 'pending'
     })
+
+    const editorEmails = await getEditorEmails()
+    editorEmails.forEach(email => {
+      sendNotification({
+        recipient_email: email,
+        subject: `Leave Request: ${formatDate(leaveForm.leave_date)} (${leaveForm.leave_type})`,
+        body_lines: [
+          `A reporter has filed a <strong>${leaveForm.leave_type}</strong> leave request for ${formatDate(leaveForm.leave_date)}.`,
+          leaveForm.notes ? `Notes: ${leaveForm.notes}` : `No additional notes provided.`,
+          leaveForm.leave_type !== 'planned' ? `This is marked as urgent — please review promptly.` : `Please review and acknowledge or reject from your dashboard.`,
+        ],
+        notification_type: 'leave_requested',
+        reporter_id: reporterId,
+      })
+    })
+
     setSubmittingLeave(false)
     setShowLeave(false)
     setLeaveForm({ leave_date: '', leave_type: 'planned', notes: '' })
