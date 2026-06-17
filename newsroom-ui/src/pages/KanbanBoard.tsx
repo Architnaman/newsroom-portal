@@ -6,6 +6,7 @@ import { useTheme } from "../context/ThemeContext"
 import { useDateFormat } from '../context/DateFormatContext'
 import { useCollapse } from "../hooks/useCollapse"
 import { useResponsive } from "../hooks/useResponsive"
+import { sendNotification } from "../lib/notifications"
 
 export default function KanbanBoard() {
   const { t } = useTheme()
@@ -29,6 +30,7 @@ export default function KanbanBoard() {
 
   const [stories, setStories] = useState<any[]>([])
   const [assignMap, setAssignMap] = useState<Record<string, string>>({})
+  const [reporterInfoMap, setReporterInfoMap] = useState<Record<string, { id: string; email: string; name: string }>>({})
   const [assignStory, setAssignStory] = useState<any>(null)
   const [viewFile, setViewFile] = useState<any>(null)
   const [feedbackModal, setFeedbackModal] = useState<any>(null)
@@ -42,12 +44,18 @@ export default function KanbanBoard() {
     const { data } = await supabase.from("stories").select("*").order("priority", { ascending: false })
     const { data: assignments } = await supabase.from("assignments").select("story_id, reporter_id").eq("is_active", true)
     const reporterIds = [...new Set((assignments || []).map((a: any) => a.reporter_id))]
-    const { data: reporters } = await supabase.from("reporters").select("id, name").in("id", reporterIds.length > 0 ? reporterIds : ["none"])
+    const { data: reporters } = await supabase.from("reporters").select("id, name, email").in("id", reporterIds.length > 0 ? reporterIds : ["none"])
     const nameMap: Record<string, string> = {}
-    reporters?.forEach((r: any) => { nameMap[r.id] = r.name })
+    const infoMap: Record<string, { id: string; email: string; name: string }> = {}
+    reporters?.forEach((r: any) => { nameMap[r.id] = r.name; infoMap[r.id] = { id: r.id, email: r.email, name: r.name } })
     const map: Record<string, string> = {}
-    assignments?.forEach((a: any) => { map[a.story_id] = nameMap[a.reporter_id] })
+    const storyReporterMap: Record<string, { id: string; email: string; name: string }> = {}
+    assignments?.forEach((a: any) => {
+      map[a.story_id] = nameMap[a.reporter_id]
+      if (infoMap[a.reporter_id]) storyReporterMap[a.story_id] = infoMap[a.reporter_id]
+    })
     setAssignMap(map)
+    setReporterInfoMap(storyReporterMap)
     setStories(data || [])
     setLoading(false)
   }
@@ -70,22 +78,59 @@ export default function KanbanBoard() {
 
   async function publishStory(storyId: string, feedbackText: string | null) {
     setPublishing(storyId)
+    const story = stories.find(s => s.id === storyId)
+    const reporterInfo = reporterInfoMap[storyId]
+
     await supabase.from("stories").update({
       status: "published",
       published_at: new Date().toISOString(),
       editor_feedback: feedbackText?.trim() || null,
       feedback_at: feedbackText?.trim() ? new Date().toISOString() : null
     }).eq("id", storyId)
+
+    if (reporterInfo && story) {
+      const bodyLines = [
+        `Your story <strong>"${story.headline}"</strong> has been published.`,
+        feedbackText?.trim() ? `Editor feedback: ${feedbackText.trim()}` : `Great work — no additional feedback was left.`,
+      ]
+      sendNotification({
+        recipient_email: reporterInfo.email,
+        subject: `Story Published: ${story.headline}`,
+        body_lines: bodyLines,
+        notification_type: "story_published",
+        reporter_id: reporterInfo.id,
+        story_id: storyId,
+      })
+    }
+
     setViewFile(null); setFeedbackModal(null); setFeedback("")
     await load(); setPublishing(null)
   }
 
   async function reassignStory() {
     if (!reassignModal || !reassignReason.trim()) return
+    const reporterInfo = reporterInfoMap[reassignModal.id]
+
     await supabase.from("stories").update({
       status: "assigned", reassign_reason: reassignReason,
       filed_file_url: null, filed_file_name: null, filed_at: null
     }).eq("id", reassignModal.id)
+
+    if (reporterInfo) {
+      sendNotification({
+        recipient_email: reporterInfo.email,
+        subject: `Story Reassigned: ${reassignModal.headline}`,
+        body_lines: [
+          `Your filed story <strong>"${reassignModal.headline}"</strong> has been sent back for revisions.`,
+          `Reason: ${reassignReason.trim()}`,
+          `Please review and refile from your dashboard.`,
+        ],
+        notification_type: "story_reassigned",
+        reporter_id: reporterInfo.id,
+        story_id: reassignModal.id,
+      })
+    }
+
     setReassignModal(null); setReassignReason(""); setViewFile(null)
     await load()
   }
