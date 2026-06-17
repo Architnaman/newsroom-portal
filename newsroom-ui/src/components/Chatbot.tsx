@@ -3,6 +3,7 @@ import { supabase } from "../lib/supabase"
 import { useAuth } from "../context/AuthContext"
 import { useTheme } from "../context/ThemeContext"
 import { useResponsive } from "../hooks/useResponsive"
+import { sendNotification } from "../lib/notifications"
 
 const GROQ_API_KEY = import.meta.env.VITE_GROQ_API_KEY
 
@@ -123,7 +124,7 @@ export default function Chatbot() {
       }
 
       if (action.type === "assign_story") {
-        const { data: storyData } = await supabase.from("stories").select("deadline").eq("id", action.story_id).single()
+        const { data: storyData } = await supabase.from("stories").select("headline, deadline").eq("id", action.story_id).single()
         const now = new Date()
         const day = now.getDay()
         const diffStart = now.getDate() - day + (day === 0 ? -6 : 1)
@@ -144,11 +145,28 @@ export default function Chatbot() {
         await supabase.from("assignments").update({ is_active: false }).eq("story_id", action.story_id)
         await supabase.from("assignments").insert({ story_id: action.story_id, reporter_id: action.reporter_id, is_active: true, is_override: false })
         await supabase.from("stories").update({ status: "assigned" }).eq("id", action.story_id)
+
+        const { data: assignedReporter } = await supabase.from("reporters").select("email").eq("id", action.reporter_id).maybeSingle()
+        if (assignedReporter?.email && storyData) {
+          sendNotification({
+            recipient_email: assignedReporter.email,
+            subject: `New Story Assigned: ${storyData.headline}`,
+            body_lines: [
+              `You have been assigned a new story: <strong>"${storyData.headline}"</strong>.`,
+              `Deadline: ${storyData.deadline}`,
+              `Please check your dashboard for full details.`,
+            ],
+            notification_type: "story_assigned",
+            reporter_id: action.reporter_id,
+            story_id: action.story_id,
+          })
+        }
+
         return "Story assigned successfully!"
       }
 
       if (action.type === "override_assign_story") {
-        const { data: overrideStory } = await supabase.from("stories").select("deadline").eq("id", action.story_id).single()
+        const { data: overrideStory } = await supabase.from("stories").select("headline, deadline").eq("id", action.story_id).single()
         const now2 = new Date()
         const day2 = now2.getDay()
         const diffStart2 = now2.getDate() - day2 + (day2 === 0 ? -6 : 1)
@@ -168,10 +186,27 @@ export default function Chatbot() {
           override_reason: action.reason, override_status: "pending"
         })
         await supabase.from("stories").update({ status: "assigned" }).eq("id", action.story_id)
-        const { data: storyData } = await supabase.from("stories").select("deadline").eq("id", action.story_id).single()
         const { data: holidays } = await supabase.from("holidays").select("*")
-        const isHoliday = storyData && (holidays || []).find((h: any) => h.date.split("T")[0] === storyData.deadline)
+        const isHoliday = overrideStory && (holidays || []).find((h: any) => h.date.split("T")[0] === overrideStory.deadline)
         const holidayNote = isHoliday ? ` (Holiday override: ${isHoliday.name})` : ""
+
+        const { data: overrideReporter } = await supabase.from("reporters").select("email").eq("id", action.reporter_id).maybeSingle()
+        if (overrideReporter?.email && overrideStory) {
+          sendNotification({
+            recipient_email: overrideReporter.email,
+            subject: `Action Needed — Override Assignment: ${overrideStory.headline}`,
+            body_lines: [
+              `You have been assigned <strong>"${overrideStory.headline}"</strong> despite being unavailable.`,
+              `Reason given by editor: ${action.reason}`,
+              isHoliday ? `Note: this deadline falls on a public holiday (${isHoliday.name}).` : "",
+              `Please log in and Accept or Reject this assignment from your dashboard.`,
+            ].filter(Boolean),
+            notification_type: "override_assignment",
+            reporter_id: action.reporter_id,
+            story_id: action.story_id,
+          })
+        }
+
         return `Story assigned with override${holidayNote}! Reporter will be notified to accept or reject with a reason.`
       }
 
