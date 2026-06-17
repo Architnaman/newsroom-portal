@@ -7,6 +7,7 @@ import { useDateFormat } from '../context/DateFormatContext'
 import { useCollapse } from "../hooks/useCollapse"
 import SectionCard from "../components/SectionCard"
 import { useResponsive } from "../hooks/useResponsive"
+import { sendNotification } from "../lib/notifications"
 
 export default function ReporterQueue() {
   const { reporterId } = useAuth()
@@ -50,6 +51,21 @@ export default function ReporterQueue() {
   }
   const statusColor: Record<string, string> = {
     assigned: t.warning, in_progress: t.success, filed: "#a78bfa", published: t.success
+  }
+
+  // ── Helper: get editor emails for notifications ──
+  async function getEditorEmails(): Promise<string[]> {
+    const { data } = await supabase
+      .from("profiles")
+      .select("reporter_id")
+      .eq("role", "editor")
+    const reporterIds = (data || []).map((p: any) => p.reporter_id).filter(Boolean)
+    if (reporterIds.length === 0) return []
+    const { data: editorReporters } = await supabase
+      .from("reporters")
+      .select("email")
+      .in("id", reporterIds)
+    return (editorReporters || []).map((r: any) => r.email).filter(Boolean)
   }
 
   async function load() {
@@ -99,6 +115,23 @@ export default function ReporterQueue() {
         }).eq("id", story.assignment_id)
         await supabase.from("stories").update({ status: "unassigned" }).eq("id", story.id)
       }
+
+      const editorEmails = await getEditorEmails()
+      editorEmails.forEach(email => {
+        sendNotification({
+          recipient_email: email,
+          subject: `Override Assignment ${actionType === "accept" ? "Accepted" : "Rejected"}: ${story.headline}`,
+          body_lines: [
+            `The reporter has <strong>${actionType === "accept" ? "ACCEPTED" : "REJECTED"}</strong> the override assignment for <strong>"${story.headline}"</strong>.`,
+            `Reporter's reason: ${overrideResponse.trim()}`,
+            actionType === "reject" ? `The story has been moved back to UNASSIGNED and needs reassignment.` : `The reporter will proceed with covering this story.`,
+          ],
+          notification_type: "override_response",
+          reporter_id: reporterId,
+          story_id: story.id,
+        })
+      })
+
       setOverrideModal(null); setOverrideResponse(""); await load()
     } catch (err: any) { alert("Error: " + err.message) }
     setOverrideLoading(false)
@@ -144,6 +177,22 @@ export default function ReporterQueue() {
         filed_file_name: uploadedNames.join(", "),
         filed_at: new Date().toISOString()
       }).eq("id", fileModal.id)
+
+      const editorEmails = await getEditorEmails()
+      editorEmails.forEach(email => {
+        sendNotification({
+          recipient_email: email,
+          subject: `Story Filed: ${fileModal.headline}`,
+          body_lines: [
+            `A reporter has filed their report for <strong>"${fileModal.headline}"</strong>.`,
+            `${uploadedNames.length} file(s) submitted: ${uploadedNames.join(", ")}`,
+            `Please review and publish from the Story Board.`,
+          ],
+          notification_type: "story_filed",
+          reporter_id: reporterId,
+          story_id: fileModal.id,
+        })
+      })
 
       closeFileModal()
       await load()
