@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
 import { useResponsive } from '../hooks/useResponsive'
+import { sendNotification } from '../lib/notifications'
 
 interface Suggestion {
   reporter_id: string; name: string; email: string
@@ -74,12 +75,31 @@ export default function AssignModal({ story, onClose, onAssigned }: Props) {
 
   async function assign(reporterIdToAssign: string) {
     setAssigning(reporterIdToAssign)
+    const reporterInfo = suggestions.find(s => s.reporter_id === reporterIdToAssign)
+      || allReporters.find(r => r.id === reporterIdToAssign)
+
     await supabase.from('assignments').update({ is_active: false }).eq('story_id', story.id).eq('is_active', true)
     await supabase.from('assignments').insert({
       story_id: story.id, reporter_id: reporterIdToAssign,
       assigned_by: reporterId, is_active: true, is_override: false
     })
     await supabase.from('stories').update({ status: 'assigned' }).eq('id', story.id)
+
+    if (reporterInfo?.email) {
+      sendNotification({
+        recipient_email: reporterInfo.email,
+        subject: `New Story Assigned: ${story.headline}`,
+        body_lines: [
+          `You have been assigned a new story: <strong>"${story.headline}"</strong>.`,
+          story.deadline ? `Deadline: ${story.deadline}` : '',
+          `Please check your dashboard for full details.`,
+        ].filter(Boolean),
+        notification_type: 'story_assigned',
+        reporter_id: reporterIdToAssign,
+        story_id: story.id,
+      })
+    }
+
     setAssigning(null); onAssigned(); onClose()
   }
 
@@ -93,6 +113,23 @@ export default function AssignModal({ story, onClose, onAssigned }: Props) {
       override_reason: overrideReason, override_status: 'pending'
     })
     await supabase.from('stories').update({ status: 'assigned' }).eq('id', story.id)
+
+    if (overrideModal.email) {
+      sendNotification({
+        recipient_email: overrideModal.email,
+        subject: `Action Needed — Override Assignment: ${story.headline}`,
+        body_lines: [
+          `You have been assigned <strong>"${story.headline}"</strong> despite being unavailable.`,
+          `Reason given by editor: ${overrideReason.trim()}`,
+          deadlineIsHoliday ? `Note: this deadline falls on a public holiday (${holidayName}).` : '',
+          `Please log in and Accept or Reject this assignment from your dashboard.`,
+        ].filter(Boolean),
+        notification_type: 'override_assignment',
+        reporter_id: overrideModal.id,
+        story_id: story.id,
+      })
+    }
+
     setOverrideLoading(false); setOverrideModal(null); setOverrideReason('')
     onAssigned(); onClose()
   }

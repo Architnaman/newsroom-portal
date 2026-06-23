@@ -7,6 +7,7 @@ import { useDateFormat } from '../context/DateFormatContext'
 import { useCollapse } from '../hooks/useCollapse'
 import SectionCard from '../components/SectionCard'
 import { useResponsive } from '../hooks/useResponsive'
+import { sendNotification } from '../lib/notifications'
 
 export default function EditorDashboard() {
   const { t } = useTheme()
@@ -165,12 +166,48 @@ export default function EditorDashboard() {
     }
     await supabase.from('leave_requests')
       .update({ status: 'acknowledged', acknowledged_at: new Date().toISOString() }).eq('id', leaveId)
+
+    if (leave) {
+      const { data: reporterData } = await supabase.from('reporters').select('email').eq('id', leave.reporter_id).maybeSingle()
+      if (reporterData?.email) {
+        sendNotification({
+          recipient_email: reporterData.email,
+          subject: `Leave Approved: ${leave.leave_date}`,
+          body_lines: [
+            `Your <strong>${leave.leave_type}</strong> leave request for ${leave.leave_date} has been <strong>approved</strong>.`,
+            `Your availability has been updated accordingly.`,
+          ],
+          notification_type: 'leave_acknowledged',
+          reporter_id: leave.reporter_id,
+        })
+      }
+    }
+
     load()
   }
 
   async function rejectLeave(leaveId: string) {
+    const leave = alerts.find(a => a.id === leaveId)
+
     await supabase.from('leave_requests')
       .update({ status: 'rejected', reject_reason: rejectReason }).eq('id', leaveId)
+
+    if (leave) {
+      const { data: reporterData } = await supabase.from('reporters').select('email').eq('id', leave.reporter_id).maybeSingle()
+      if (reporterData?.email) {
+        sendNotification({
+          recipient_email: reporterData.email,
+          subject: `Leave Rejected: ${leave.leave_date}`,
+          body_lines: [
+            `Your <strong>${leave.leave_type}</strong> leave request for ${leave.leave_date} has been <strong>rejected</strong>.`,
+            `Reason: ${rejectReason.trim()}`,
+          ],
+          notification_type: 'leave_rejected',
+          reporter_id: leave.reporter_id,
+        })
+      }
+    }
+
     setRejectModal(null); setRejectReason(''); load()
   }
 

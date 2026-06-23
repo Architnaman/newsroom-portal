@@ -13,7 +13,10 @@ import ReporterView from './pages/ReporterView'
 import AdminPortal from './pages/AdminPortal'
 import AIReportGenerator from './pages/AIReportGenerator'
 import ChatPage from './pages/ChatPage'
+import AnalyticsPage from './pages/AnalyticsPage'
+import AppUsageAnalytics from './pages/AppUsageAnalytics'
 import Chatbot from './components/Chatbot'
+import { usePageTracking } from './hooks/usePageTracking'
 
 
 function ProtectedRoute({ children, requiredRole }: {
@@ -51,6 +54,8 @@ function AppRoutes() {
   const { fontSize, bgMain, background } = useTheme()
   const location = useLocation()
 
+  usePageTracking()
+
   function getHome() {
     if (role === 'admin') return '/admin'
     if (role === 'editor') return '/dashboard'
@@ -68,6 +73,11 @@ function AppRoutes() {
         <Route path="/admin" element={
           <ProtectedRoute requiredRole="admin">
             <AdminPortal />
+          </ProtectedRoute>
+        } />
+        <Route path="/app-usage" element={
+          <ProtectedRoute requiredRole="admin">
+            <AppUsageAnalytics />
           </ProtectedRoute>
         } />
 
@@ -121,6 +131,13 @@ function AppRoutes() {
         <Route path="/chat" element={
           <ProtectedRoute requiredRole={['editor', 'reporter']}>
             <ChatPage />
+          </ProtectedRoute>
+        } />
+
+        {/* ANALYTICS — shared between editor and admin */}
+        <Route path="/analytics" element={
+          <ProtectedRoute requiredRole={['editor', 'admin']}>
+            <AnalyticsPage />
           </ProtectedRoute>
         } />
 

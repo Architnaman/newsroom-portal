@@ -35,6 +35,7 @@ export default function ChatPage() {
   const { t } = useTheme()
   const { isMobile, isTablet } = useResponsive()
   const { reporterId, userName, role } = useAuth()
+  console.log('[ChatPage debug] reporterId:', reporterId, 'role:', role, 'userName:', userName)
 
   const [channels, setChannels] = useState<any[]>([])
   const [membersByChannel, setMembersByChannel] = useState<Record<string, any[]>>({})
@@ -336,26 +337,33 @@ export default function ChatPage() {
 
   // ── New DM ──
   async function startDM(otherId: string) {
+    console.log('[startDM] called with otherId:', otherId, 'reporterId:', reporterId)
     for (const ch of channels) {
       if (ch.type === 'dm') {
         const members = membersByChannel[ch.id] || []
         const ids = members.map((m: any) => m.reporter_id)
         if (ids.includes(otherId) && ids.includes(reporterId)) {
+          console.log('[startDM] existing DM found, opening:', ch.id)
           setActiveChannelId(ch.id); setShowMobileChat(true); return
         }
       }
     }
-    const { data: newChannel } = await supabase.from('chat_channels').insert({
+    console.log('[startDM] no existing DM, creating new channel')
+    const { data: newChannel, error: channelErr } = await supabase.from('chat_channels').insert({
       type: 'dm', created_by: reporterId
     }).select().single()
-    if (!newChannel) return
-    await supabase.from('chat_channel_members').insert([
+    if (channelErr) console.error('[startDM] channel insert failed:', channelErr)
+    if (!newChannel) { console.warn('[startDM] no newChannel returned, aborting'); return }
+    console.log('[startDM] channel created:', newChannel.id)
+    const { error: memberErr } = await supabase.from('chat_channel_members').insert([
       { channel_id: newChannel.id, reporter_id: reporterId },
       { channel_id: newChannel.id, reporter_id: otherId },
     ])
+    if (memberErr) console.error('[startDM] member insert failed:', memberErr)
     await loadChannels()
     setActiveChannelId(newChannel.id)
     setShowMobileChat(true)
+    console.log('[startDM] done, activeChannelId set to:', newChannel.id)
   }
 
   // ── New Group ──

@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase'
 import { useTheme } from '../context/ThemeContext'
 import { useDateFormat } from '../context/DateFormatContext'
 import Navbar from '../components/Navbar'
+import { sendNotification } from '../lib/notifications'
 
 const GROQ_API_KEY = import.meta.env.VITE_GROQ_API_KEY
 
@@ -591,6 +592,35 @@ CRITICAL: Use ONLY confirmed reporter names. Return ONLY valid JSON. No markdown
         override_status: sa.isOverride ? 'pending' : null
       })
       await supabase.from('stories').update({ status: 'assigned' }).eq('id', sa.storyId)
+
+      if (sa.finalReporter.email) {
+        if (sa.isOverride) {
+          sendNotification({
+            recipient_email: sa.finalReporter.email,
+            subject: `Action Needed — Override Assignment: ${sa.storyHeadline}`,
+            body_lines: [
+              `You have been assigned <strong>"${sa.storyHeadline}"</strong> via Ambient Scribe, despite being unavailable.`,
+              `Reason given by editor: ${sa.overrideReason}`,
+              `Please log in and Accept or Reject this assignment from your dashboard.`,
+            ],
+            notification_type: 'override_assignment',
+            reporter_id: sa.finalReporter.id,
+            story_id: sa.storyId,
+          })
+        } else {
+          sendNotification({
+            recipient_email: sa.finalReporter.email,
+            subject: `New Story Assigned: ${sa.storyHeadline}`,
+            body_lines: [
+              `You have been assigned a new story via Ambient Scribe: <strong>"${sa.storyHeadline}"</strong>.`,
+              `Please check your dashboard for full details.`,
+            ],
+            notification_type: 'story_assigned',
+            reporter_id: sa.finalReporter.id,
+            story_id: sa.storyId,
+          })
+        }
+      }
     }
     setReport({ ...report, status: 'approved' }); setStep('approved')
     window.dispatchEvent(new Event('newsroom-refresh')); loadData(); setApproving(false)
@@ -630,6 +660,35 @@ CRITICAL: Use ONLY confirmed reporter names. Return ONLY valid JSON. No markdown
           override_status: sa.isOverride ? 'pending' : null
         })
         await supabase.from('stories').update({ status: 'assigned' }).eq('id', sa.storyId)
+
+        if (sa.finalReporter.email) {
+          if (sa.isOverride) {
+            sendNotification({
+              recipient_email: sa.finalReporter.email,
+              subject: `Action Needed — Override Assignment: ${sa.storyHeadline}`,
+              body_lines: [
+                `You have been assigned <strong>"${sa.storyHeadline}"</strong> via Ambient Scribe, despite being unavailable.`,
+                `Reason given by editor: ${sa.overrideReason}`,
+                `Please log in and Accept or Reject this assignment from your dashboard.`,
+              ],
+              notification_type: 'override_assignment',
+              reporter_id: sa.finalReporter.id,
+              story_id: sa.storyId,
+            })
+          } else {
+            sendNotification({
+              recipient_email: sa.finalReporter.email,
+              subject: `New Story Assigned: ${sa.storyHeadline}`,
+              body_lines: [
+                `You have been assigned a new story via Ambient Scribe: <strong>"${sa.storyHeadline}"</strong>.`,
+                `Please check your dashboard for full details.`,
+              ],
+              notification_type: 'story_assigned',
+              reporter_id: sa.finalReporter.id,
+              story_id: sa.storyId,
+            })
+          }
+        }
       }
 
       window.dispatchEvent(new Event('newsroom-refresh'))
@@ -661,6 +720,24 @@ CRITICAL: Use ONLY confirmed reporter names. Return ONLY valid JSON. No markdown
     await supabase.from('assignments').update({ is_active: false }).eq('story_id', assignStoryId).eq('is_active', true)
     await supabase.from('assignments').insert({ story_id: assignStoryId, reporter_id: reporterId, is_active: true, is_override: false })
     await supabase.from('stories').update({ status: 'assigned' }).eq('id', assignStoryId)
+
+    const story = stories.find(s => s.id === assignStoryId)
+    const reporter = reporters.find(r => r.id === reporterId)
+    if (story && reporter?.email) {
+      sendNotification({
+        recipient_email: reporter.email,
+        subject: `New Story Assigned: ${story.headline}`,
+        body_lines: [
+          `You have been assigned a new story: <strong>"${story.headline}"</strong>.`,
+          `Deadline: ${story.deadline}`,
+          `Please check your dashboard for full details.`,
+        ],
+        notification_type: 'story_assigned',
+        reporter_id: reporterId,
+        story_id: assignStoryId,
+      })
+    }
+
     setAssigningReporter(null); setShowScoreModal(false)
     window.dispatchEvent(new Event('newsroom-refresh')); loadData()
   }
@@ -671,6 +748,23 @@ CRITICAL: Use ONLY confirmed reporter names. Return ONLY valid JSON. No markdown
     await supabase.from('assignments').update({ is_active: false }).eq('story_id', assignStoryId).eq('is_active', true)
     await supabase.from('assignments').insert({ story_id: assignStoryId, reporter_id: postOverrideModal.id, is_active: true, is_override: true, override_reason: postOverrideReason, override_status: 'pending' })
     await supabase.from('stories').update({ status: 'assigned' }).eq('id', assignStoryId)
+
+    const story = stories.find(s => s.id === assignStoryId)
+    if (story && postOverrideModal.email) {
+      sendNotification({
+        recipient_email: postOverrideModal.email,
+        subject: `Action Needed — Override Assignment: ${story.headline}`,
+        body_lines: [
+          `You have been assigned <strong>"${story.headline}"</strong> despite being unavailable.`,
+          `Reason given by editor: ${postOverrideReason.trim()}`,
+          `Please log in and Accept or Reject this assignment from your dashboard.`,
+        ],
+        notification_type: 'override_assignment',
+        reporter_id: postOverrideModal.id,
+        story_id: assignStoryId,
+      })
+    }
+
     setPostOverrideLoading(false); setPostOverrideModal(null); setPostOverrideReason('')
     setShowScoreModal(false); setShowOverrideList(false)
     window.dispatchEvent(new Event('newsroom-refresh')); loadData()

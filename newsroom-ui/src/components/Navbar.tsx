@@ -89,6 +89,7 @@ export default function Navbar() {
     { label: 'Calendar', path: '/calendar' },
     { label: 'Chat', path: '/chat' },
     { label: 'Ambient Scribe', path: '/ai-report' },
+    { label: 'Analytics', path: '/analytics' },
   ]
   const reporterNav: NavItem[] = [
     { label: 'My Stories', path: '/queue' },
@@ -98,6 +99,8 @@ export default function Navbar() {
   ]
   const adminNav: NavItem[] = [
     { label: 'Settings', path: '/admin' },
+    { label: 'Analytics', path: '/analytics' },
+    { label: 'App Usage', path: '/app-usage' },
   ]
   const nav = role === 'editor' ? editorNav : role === 'admin' ? adminNav : reporterNav
 
