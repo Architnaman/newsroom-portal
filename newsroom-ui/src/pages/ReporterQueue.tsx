@@ -127,7 +127,7 @@ export default function ReporterQueue() {
             actionType === "reject" ? `The story has been moved back to UNASSIGNED and needs reassignment.` : `The reporter will proceed with covering this story.`,
           ],
           notification_type: "override_response",
-          reporter_id: reporterId,
+          reporter_id: reporterId || undefined,
           story_id: story.id,
         })
       })
@@ -189,7 +189,7 @@ export default function ReporterQueue() {
             `Please review and publish from the Story Board.`,
           ],
           notification_type: "story_filed",
-          reporter_id: reporterId,
+          reporter_id: reporterId || undefined,
           story_id: fileModal.id,
         })
       })
