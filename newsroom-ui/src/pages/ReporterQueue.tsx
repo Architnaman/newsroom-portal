@@ -67,6 +67,12 @@ export default function ReporterQueue() {
   const audioChunksRef = useRef<Blob[]>([])
   const audioTimerRef = useRef<any>(null)
 
+  // ── Notes attachment states ──
+  const [storyNotes, setStoryNotes] = useState<any[]>([])
+  const [notesReporters, setNotesReporters] = useState<Record<string, string>>({})
+  const [selectedNoteIds, setSelectedNoteIds] = useState<string[]>([])
+  const [loadingNotes, setLoadingNotes] = useState(false)
+
   const videoPreviewRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const cropCanvasRef = useRef<HTMLCanvasElement>(null)
@@ -155,6 +161,24 @@ export default function ReporterQueue() {
     setOverrideLoading(false)
   }
 
+  async function loadStoryNotes(storyId: string) {
+    setLoadingNotes(true)
+    const { data } = await supabase
+      .from('reporter_notes')
+      .select('*')
+      .eq('story_id', storyId)
+      .order('created_at', { ascending: false })
+    setStoryNotes(data || [])
+    if ((data || []).length > 0) {
+      const rIds = [...new Set((data || []).map((n: any) => n.reporter_id))]
+      const { data: rData } = await supabase.from('reporters').select('id, name').in('id', rIds)
+      const map: Record<string, string> = {}
+      ;(rData || []).forEach((r: any) => { map[r.id] = r.name })
+      setNotesReporters(map)
+    }
+    setLoadingNotes(false)
+  }
+
   async function uploadAndFile() {
     if (!selectedFiles.length || !fileModal || !reporterId) return
     setUploadingId(fileModal.id)
@@ -172,10 +196,22 @@ export default function ReporterQueue() {
         uploadedNames.push(file.name)
       }
       if (uploadedUrls.length === 0) { alert("No files were uploaded successfully."); setUploadingId(null); return }
+
+      // ── Build attached notes text ──
+      let filedNotesText: string | null = null
+      if (selectedNoteIds.length > 0) {
+        const attachedNotes = storyNotes.filter(n => selectedNoteIds.includes(n.id))
+        filedNotesText = attachedNotes.map(n =>
+          `[${notesReporters[n.reporter_id] || 'Reporter'}] ${new Date(n.created_at).toLocaleDateString()}: ${n.note_text}`
+        ).join('\n\n')
+      }
+
       await supabase.from("stories").update({
         status: "filed", filed_file_url: JSON.stringify(uploadedUrls),
-        filed_file_name: uploadedNames.join(", "), filed_at: new Date().toISOString()
+        filed_file_name: uploadedNames.join(", "), filed_at: new Date().toISOString(),
+        filed_notes: filedNotesText
       }).eq("id", fileModal.id)
+
       const editorEmails = await getEditorEmails()
       editorEmails.forEach(email => {
         sendNotification({
@@ -184,8 +220,9 @@ export default function ReporterQueue() {
           body_lines: [
             `A reporter has filed their report for <strong>"${fileModal.headline}"</strong>.`,
             `${uploadedNames.length} file(s) submitted: ${uploadedNames.join(", ")}`,
+            selectedNoteIds.length > 0 ? `${selectedNoteIds.length} reporter note(s) attached.` : '',
             `Please review and publish from the Story Board.`,
-          ],
+          ].filter(Boolean),
           notification_type: "story_filed",
           reporter_id: reporterId || undefined,
           story_id: fileModal.id,
@@ -206,6 +243,7 @@ export default function ReporterQueue() {
     setFileModal(null); setSelectedFiles([]); setDragOver(false)
     setShowCamera(false); setCapturedImage(null); setCropMode(false)
     setCropRect(null); setCropStart(null); setCropImageIndex(null)
+    setStoryNotes([]); setSelectedNoteIds([]); setNotesReporters({})
   }
 
   // ── VIDEO RECORDING ──
@@ -281,7 +319,6 @@ export default function ReporterQueue() {
     }
   }
 
-  // ── ADD CLIPS AS SEPARATE FILES (no ffmpeg needed) ──
   async function trimVideoClip(url: string, trimStart: number, trimEnd: number, originalBlob: Blob): Promise<Blob> {
     return new Promise((resolve) => {
       const video = document.createElement('video')
@@ -289,9 +326,7 @@ export default function ReporterQueue() {
       video.preload = 'auto'
       video.muted = true
 
-      video.onloadeddata = () => {
-        video.currentTime = trimStart
-      }
+      video.onloadeddata = () => { video.currentTime = trimStart }
 
       video.onseeked = () => {
         try {
@@ -304,16 +339,11 @@ export default function ReporterQueue() {
           if (!stream) { resolve(originalBlob); return }
 
           const recorder = new MediaRecorder(stream, {
-            mimeType: MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
-              ? 'video/webm;codecs=vp9'
-              : 'video/webm'
+            mimeType: MediaRecorder.isTypeSupported('video/webm;codecs=vp9') ? 'video/webm;codecs=vp9' : 'video/webm'
           })
           const chunks: Blob[] = []
 
-          recorder.ondataavailable = (e: BlobEvent) => {
-            if (e.data && e.data.size > 0) chunks.push(e.data)
-          }
-
+          recorder.ondataavailable = (e: BlobEvent) => { if (e.data && e.data.size > 0) chunks.push(e.data) }
           recorder.onstop = () => {
             stream.getTracks().forEach((t: MediaStreamTrack) => t.stop())
             const result = new Blob(chunks, { type: 'video/webm' })
@@ -333,15 +363,13 @@ export default function ReporterQueue() {
           }
           video.addEventListener('timeupdate', onTimeUpdate)
 
-          // Hard safety stop
-          const safetySec = (trimEnd - trimStart + 3) * 1000
           setTimeout(() => {
             if (recorder.state === 'recording') {
               video.pause()
               video.removeEventListener('timeupdate', onTimeUpdate)
               recorder.stop()
             }
-          }, safetySec)
+          }, (trimEnd - trimStart + 3) * 1000)
 
         } catch (e) {
           console.error('[trim] captureStream failed:', e)
@@ -349,10 +377,7 @@ export default function ReporterQueue() {
         }
       }
 
-      video.onerror = (e) => {
-        console.error('[trim] video error:', e)
-        resolve(originalBlob)
-      }
+      video.onerror = (e) => { console.error('[trim] video error:', e); resolve(originalBlob) }
     })
   }
 
@@ -365,14 +390,12 @@ export default function ReporterQueue() {
     for (let i = 0; i < videoClips.length; i++) {
       const clip = videoClips[i]
       const fileName = `video_clip_${i + 1}_of_${videoClips.length}_${Date.now()}.webm`
-
       try {
         const trimmed = await trimVideoClip(clip.url, clip.trimStart, clip.trimEnd, clip.blob)
         files.push(new File([trimmed], fileName, { type: 'video/webm' }))
       } catch {
         files.push(new File([clip.blob], fileName, { type: 'video/webm' }))
       }
-
       setMergeProgress(Math.round(((i + 1) / videoClips.length) * 100))
     }
 
@@ -412,9 +435,7 @@ export default function ReporterQueue() {
       recorder.start()
       setAudioRecording(true)
       audioTimerRef.current = setInterval(() => setAudioRecordingTime(p => p + 1), 1000)
-    } catch (err: any) {
-      alert("Microphone access denied: " + err.message)
-    }
+    } catch (err: any) { alert("Microphone access denied: " + err.message) }
   }
 
   function stopAudioRecording() {
@@ -445,9 +466,7 @@ export default function ReporterQueue() {
         const video = document.querySelector('video[data-photo-camera]') as HTMLVideoElement
         if (video) video.srcObject = stream
       }, 200)
-    } catch (err: any) {
-      alert("Camera error: " + err.name + " — " + err.message)
-    }
+    } catch (err: any) { alert("Camera error: " + err.name + " — " + err.message) }
   }
 
   function stopCamera() {
@@ -620,7 +639,7 @@ export default function ReporterQueue() {
                               </button>
                             )}
                             {story.status === "in_progress" && (
-                              <button onClick={() => setFileModal(story)} style={{ padding: "10px 18px", background: "rgba(167,139,250,0.1)", border: "1px solid rgba(167,139,250,0.35)", borderRadius: "6px", color: "#a78bfa", fontSize: "11px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap", flex: isMobile ? 1 : "none", minHeight: "44px" }}>
+                              <button onClick={() => { setFileModal(story); loadStoryNotes(story.id) }} style={{ padding: "10px 18px", background: "rgba(167,139,250,0.1)", border: "1px solid rgba(167,139,250,0.35)", borderRadius: "6px", color: "#a78bfa", fontSize: "11px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap", flex: isMobile ? 1 : "none", minHeight: "44px" }}>
                                 FILE REPORT
                               </button>
                             )}
@@ -801,7 +820,6 @@ export default function ReporterQueue() {
                     </button>
                   </div>
                 </div>
-
                 <div style={{ position: "relative", borderRadius: "8px", overflow: "hidden", background: "#000", marginBottom: "10px", aspectRatio: "16/9" }}>
                   <video ref={videoRef} autoPlay playsInline muted style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
                   {videoRecording && (
@@ -817,7 +835,6 @@ export default function ReporterQueue() {
                     </div>
                   )}
                 </div>
-
                 <div style={{ display: "flex", gap: "8px", marginBottom: "12px" }}>
                   {!videoRecording ? (
                     <button onClick={startVideoRecording} style={{ flex: 1, padding: "12px", background: t.danger, border: "none", borderRadius: "8px", color: "#fff", fontSize: "13px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit", minHeight: "44px", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
@@ -829,8 +846,6 @@ export default function ReporterQueue() {
                     </button>
                   )}
                 </div>
-
-                {/* Clip list with trim */}
                 {videoClips.length > 0 && (
                   <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "12px" }}>
                     <p style={{ color: t.textMuted, fontSize: "11px", fontWeight: "700", letterSpacing: "0.5px", margin: "0 0 4px" }}>RECORDED CLIPS</p>
@@ -846,20 +861,13 @@ export default function ReporterQueue() {
                           </div>
                           <div style={{ display: "flex", gap: "6px" }}>
                             <button onClick={() => setShowTrimEditor(showTrimEditor === idx ? null : idx)}
-                              style={{ padding: "5px 10px", background: t.accentBg, border: `1px solid ${t.accentBorder}`, borderRadius: "5px", color: t.accent, fontSize: "10px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit" }}>
-                              ✂️ TRIM
-                            </button>
+                              style={{ padding: "5px 10px", background: t.accentBg, border: `1px solid ${t.accentBorder}`, borderRadius: "5px", color: t.accent, fontSize: "10px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit" }}>✂️ TRIM</button>
                             <button onClick={() => { const a = document.createElement('a'); a.href = clip.url; a.download = `clip_${idx + 1}.webm`; a.click() }}
-                              style={{ padding: "5px 10px", background: t.successBg, border: `1px solid ${t.successBorder}`, borderRadius: "5px", color: t.success, fontSize: "10px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit" }}>
-                              👁 PREVIEW
-                            </button>
+                              style={{ padding: "5px 10px", background: t.successBg, border: `1px solid ${t.successBorder}`, borderRadius: "5px", color: t.success, fontSize: "10px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit" }}>👁 PREVIEW</button>
                             <button onClick={() => deleteClip(idx)}
-                              style={{ padding: "5px 8px", background: t.dangerBg, border: `1px solid ${t.dangerBorder}`, borderRadius: "5px", color: t.danger, fontSize: "12px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit" }}>
-                              ✕
-                            </button>
+                              style={{ padding: "5px 8px", background: t.dangerBg, border: `1px solid ${t.dangerBorder}`, borderRadius: "5px", color: t.danger, fontSize: "12px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit" }}>✕</button>
                           </div>
                         </div>
-
                         {showTrimEditor === idx && (
                           <div style={{ paddingTop: "10px", borderTop: `1px solid ${t.borderCard}` }}>
                             <p style={{ color: t.textMuted, fontSize: "11px", fontWeight: "600", margin: "0 0 8px" }}>TRIM START: {formatSeconds(clip.trimStart)}</p>
@@ -870,24 +878,18 @@ export default function ReporterQueue() {
                             <input type="range" min={0} max={clip.duration} step={1} value={clip.trimEnd}
                               onChange={e => updateTrim(idx, 'trimEnd', Number(e.target.value))}
                               style={{ width: "100%", accentColor: t.accent }} />
-                            <p style={{ color: t.accent, fontSize: "11px", fontWeight: "600", margin: "8px 0 0" }}>
-                              Selected duration: {formatSeconds(clip.trimEnd - clip.trimStart)}
-                            </p>
+                            <p style={{ color: t.accent, fontSize: "11px", fontWeight: "600", margin: "8px 0 0" }}>Selected duration: {formatSeconds(clip.trimEnd - clip.trimStart)}</p>
                           </div>
                         )}
                       </div>
                     ))}
                   </div>
                 )}
-
-                {/* Add clips to files button */}
                 {videoClips.length > 0 && !videoRecording && (
                   <div>
                     {mergedVideoUrl ? (
                       <div style={{ padding: "12px", background: t.successBg, border: `1px solid ${t.successBorder}`, borderRadius: "8px" }}>
-                        <p style={{ color: t.success, fontSize: "12px", fontWeight: "700", margin: "0 0 8px" }}>
-                          ✅ {videoClips.length} video clip{videoClips.length > 1 ? 's' : ''} added to files!
-                        </p>
+                        <p style={{ color: t.success, fontSize: "12px", fontWeight: "700", margin: "0 0 8px" }}>✅ {videoClips.length} video clip{videoClips.length > 1 ? 's' : ''} added to files!</p>
                         <video src={mergedVideoUrl} controls style={{ width: "100%", borderRadius: "6px", maxHeight: "160px" }} />
                       </div>
                     ) : mergingVideo ? (
@@ -913,11 +915,8 @@ export default function ReporterQueue() {
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
                   <p style={{ color: "#a78bfa", fontSize: "12px", fontWeight: "700", margin: 0, letterSpacing: "0.5px" }}>🎙️ AUDIO RECORDER</p>
                   <button onClick={() => { stopAudioRecording(); setShowAudioRecorder(false) }}
-                    style={{ padding: "5px 10px", background: t.dangerBg, border: `1px solid ${t.dangerBorder}`, borderRadius: "6px", color: t.danger, fontSize: "11px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit" }}>
-                    CLOSE
-                  </button>
+                    style={{ padding: "5px 10px", background: t.dangerBg, border: `1px solid ${t.dangerBorder}`, borderRadius: "6px", color: t.danger, fontSize: "11px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit" }}>CLOSE</button>
                 </div>
-
                 <div style={{ height: "60px", background: t.bgCard, borderRadius: "8px", marginBottom: "12px", display: "flex", alignItems: "center", justifyContent: "center", gap: "3px", overflow: "hidden", border: `1px solid ${t.borderCard}` }}>
                   {audioRecording ? (
                     Array.from({ length: 20 }).map((_, i) => (
@@ -926,30 +925,16 @@ export default function ReporterQueue() {
                   ) : (
                     <p style={{ color: t.textDisabled, fontSize: "12px", margin: 0 }}>Press START to record audio</p>
                   )}
-                  <style>{`
-                    @keyframes wave0{from{height:10px}to{height:40px}}
-                    @keyframes wave1{from{height:15px}to{height:50px}}
-                    @keyframes wave2{from{height:8px}to{height:35px}}
-                    @keyframes wave3{from{height:20px}to{height:45px}}
-                  `}</style>
+                  <style>{`@keyframes wave0{from{height:10px}to{height:40px}}@keyframes wave1{from{height:15px}to{height:50px}}@keyframes wave2{from{height:8px}to{height:35px}}@keyframes wave3{from{height:20px}to{height:45px}}`}</style>
                 </div>
-
-                {audioRecording && (
-                  <p style={{ color: "#a78bfa", fontSize: "14px", fontWeight: "700", textAlign: "center", margin: "0 0 10px" }}>🔴 {formatSeconds(audioRecordingTime)}</p>
-                )}
-
+                {audioRecording && <p style={{ color: "#a78bfa", fontSize: "14px", fontWeight: "700", textAlign: "center", margin: "0 0 10px" }}>🔴 {formatSeconds(audioRecordingTime)}</p>}
                 <div style={{ display: "flex", gap: "8px", marginBottom: "12px" }}>
                   {!audioRecording ? (
-                    <button onClick={startAudioRecording} style={{ flex: 1, padding: "12px", background: "#a78bfa", border: "none", borderRadius: "8px", color: "#fff", fontSize: "13px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit", minHeight: "44px" }}>
-                      🎙️ START RECORDING
-                    </button>
+                    <button onClick={startAudioRecording} style={{ flex: 1, padding: "12px", background: "#a78bfa", border: "none", borderRadius: "8px", color: "#fff", fontSize: "13px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit", minHeight: "44px" }}>🎙️ START RECORDING</button>
                   ) : (
-                    <button onClick={stopAudioRecording} style={{ flex: 1, padding: "12px", background: t.bgCard, border: "2px solid #a78bfa", borderRadius: "8px", color: "#a78bfa", fontSize: "13px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit", minHeight: "44px" }}>
-                      ⏹ STOP RECORDING
-                    </button>
+                    <button onClick={stopAudioRecording} style={{ flex: 1, padding: "12px", background: t.bgCard, border: "2px solid #a78bfa", borderRadius: "8px", color: "#a78bfa", fontSize: "13px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit", minHeight: "44px" }}>⏹ STOP RECORDING</button>
                   )}
                 </div>
-
                 {audioBlobs.length > 0 && (
                   <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
                     <p style={{ color: t.textMuted, fontSize: "11px", fontWeight: "700", letterSpacing: "0.5px", margin: 0 }}>RECORDED AUDIO</p>
@@ -961,14 +946,8 @@ export default function ReporterQueue() {
                           <audio src={audio.url} controls style={{ width: "100%", height: "32px", marginTop: "4px" }} />
                         </div>
                         <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-                          <button onClick={() => addAudioToFiles(idx)}
-                            style={{ padding: "5px 10px", background: t.successBg, border: `1px solid ${t.successBorder}`, borderRadius: "5px", color: t.success, fontSize: "10px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit" }}>
-                            + ADD
-                          </button>
-                          <button onClick={() => setAudioBlobs(prev => prev.filter((_, i) => i !== idx))}
-                            style={{ padding: "5px 8px", background: t.dangerBg, border: `1px solid ${t.dangerBorder}`, borderRadius: "5px", color: t.danger, fontSize: "10px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit" }}>
-                            ✕
-                          </button>
+                          <button onClick={() => addAudioToFiles(idx)} style={{ padding: "5px 10px", background: t.successBg, border: `1px solid ${t.successBorder}`, borderRadius: "5px", color: t.success, fontSize: "10px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit" }}>+ ADD</button>
+                          <button onClick={() => setAudioBlobs(prev => prev.filter((_, i) => i !== idx))} style={{ padding: "5px 8px", background: t.dangerBg, border: `1px solid ${t.dangerBorder}`, borderRadius: "5px", color: t.danger, fontSize: "10px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit" }}>✕</button>
                         </div>
                       </div>
                     ))}
@@ -1065,6 +1044,52 @@ export default function ReporterQueue() {
                   </div>
                 )}
 
+                {/* ── ATTACH REPORTER NOTES ── */}
+                {loadingNotes && (
+                  <p style={{ fontSize: "12px", color: t.textMuted, margin: "0 0 16px" }}>Loading notes...</p>
+                )}
+                {!loadingNotes && storyNotes.length > 0 && (
+                  <div style={{ marginBottom: "16px", padding: "14px 16px", background: t.bgPage, border: `1px solid ${t.borderCard}`, borderRadius: "10px" }}>
+                    <p style={{ margin: "0 0 10px", fontSize: "11px", fontWeight: "700", color: t.textMuted, letterSpacing: "0.5px" }}>
+                      📝 ATTACH REPORTER NOTES ({storyNotes.length} available)
+                    </p>
+                    <div style={{ display: "flex", flexDirection: "column", gap: "8px", maxHeight: "200px", overflowY: "auto" }}>
+                      {storyNotes.map(note => {
+                        const isSelected = selectedNoteIds.includes(note.id)
+                        const authorName = notesReporters[note.reporter_id] || 'Reporter'
+                        const isOwn = note.reporter_id === reporterId
+                        return (
+                          <div key={note.id} onClick={() => setSelectedNoteIds(prev =>
+                            isSelected ? prev.filter(id => id !== note.id) : [...prev, note.id]
+                          )}
+                            style={{ padding: "10px 12px", borderRadius: "8px", cursor: "pointer", border: `1px solid ${isSelected ? t.accentBorder : t.borderCard}`, background: isSelected ? t.accentBg : t.bgCard, transition: "all 0.15s" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
+                              <div style={{ width: "16px", height: "16px", borderRadius: "3px", border: `2px solid ${isSelected ? t.accent : t.borderCard}`, background: isSelected ? t.accent : 'transparent', display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                                {isSelected && <span style={{ color: t.accentText, fontSize: "10px", fontWeight: "900" }}>✓</span>}
+                              </div>
+                              <span style={{ fontSize: "11px", fontWeight: "700", color: isSelected ? t.accent : t.textSecondary }}>
+                                {authorName}{isOwn ? ' (you)' : ''}
+                              </span>
+                              <span style={{ fontSize: "10px", color: t.textMuted }}>
+                                {new Date(note.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                              </span>
+                            </div>
+                            <p style={{ margin: 0, fontSize: "12px", color: t.textPrimary, lineHeight: 1.5, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" as const }}>
+                              {note.note_text}
+                            </p>
+                          </div>
+                        )
+                      })}
+                    </div>
+                    {selectedNoteIds.length > 0 && (
+                      <p style={{ margin: "8px 0 0", fontSize: "11px", color: t.accent, fontWeight: "600" }}>
+                        ✓ {selectedNoteIds.length} note{selectedNoteIds.length > 1 ? 's' : ''} will be attached to your report
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {/* File type chips */}
                 <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginBottom: "16px" }}>
                   {["📘 Word", "📄 PDF", "🖼️ Image", "📊 Excel", "🎬 Video", "🎵 Audio", "📎 Any"].map(label => (
                     <span key={label} style={{ padding: "3px 10px", borderRadius: "20px", fontSize: "10px", fontWeight: "600", background: t.bgPage, border: `1px solid ${t.borderCard}`, color: t.textMuted }}>{label}</span>
@@ -1075,7 +1100,7 @@ export default function ReporterQueue() {
                   <button onClick={closeFileModal} style={{ flex: 1, padding: "12px", background: "transparent", border: `1px solid ${t.borderCard}`, borderRadius: "8px", color: t.textMuted, fontSize: "13px", cursor: "pointer", fontFamily: "inherit", minHeight: "48px" }}>CANCEL</button>
                   <button onClick={uploadAndFile} disabled={!selectedFiles.length || uploadingId === fileModal.id}
                     style={{ flex: 2, padding: "12px", background: selectedFiles.length ? "rgba(167,139,250,0.15)" : t.bgInput, border: `1px solid ${selectedFiles.length ? "rgba(167,139,250,0.4)" : t.borderCard}`, borderRadius: "8px", color: selectedFiles.length ? "#a78bfa" : t.textDisabled, fontSize: "13px", fontWeight: "700", cursor: selectedFiles.length ? "pointer" : "not-allowed", fontFamily: "inherit", opacity: uploadingId === fileModal.id ? 0.6 : 1, minHeight: "48px" }}>
-                    {uploadingId === fileModal.id ? "UPLOADING..." : `SUBMIT ${selectedFiles.length > 1 ? selectedFiles.length + " FILES" : "REPORT"}`}
+                    {uploadingId === fileModal.id ? "UPLOADING..." : `SUBMIT ${selectedFiles.length > 1 ? selectedFiles.length + " FILES" : "REPORT"}${selectedNoteIds.length > 0 ? ` + ${selectedNoteIds.length} NOTE${selectedNoteIds.length > 1 ? 'S' : ''}` : ''}`}
                   </button>
                 </div>
               </>

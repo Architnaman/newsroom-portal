@@ -15,6 +15,7 @@ import AIReportGenerator from './pages/AIReportGenerator'
 import ChatPage from './pages/ChatPage'
 import AnalyticsPage from './pages/AnalyticsPage'
 import AppUsageAnalytics from './pages/AppUsageAnalytics'
+import NotesPage from './pages/NotesPage'
 import Chatbot from './components/Chatbot'
 import { usePageTracking } from './hooks/usePageTracking'
 
@@ -51,7 +52,7 @@ function ProtectedRoute({ children, requiredRole }: {
 
 function AppRoutes() {
   const { user, role } = useAuth()
-  const { fontSize, bgMain, background } = useTheme()
+  const { fontSize } = useTheme()
   const location = useLocation()
 
   usePageTracking()
@@ -120,21 +121,24 @@ function AppRoutes() {
           </ProtectedRoute>
         } />
 
-        {/* SHARED */}
+        {/* SHARED — editor + reporter */}
         <Route path="/calendar" element={
           <ProtectedRoute>
             <CalendarPage />
           </ProtectedRoute>
         } />
-
-        {/* CHAT — shared between editor and reporter */}
         <Route path="/chat" element={
           <ProtectedRoute requiredRole={['editor', 'reporter']}>
             <ChatPage />
           </ProtectedRoute>
         } />
+        <Route path="/notes" element={
+          <ProtectedRoute requiredRole={['editor', 'reporter']}>
+            <NotesPage />
+          </ProtectedRoute>
+        } />
 
-        {/* ANALYTICS — shared between editor and admin */}
+        {/* ANALYTICS — editor + admin */}
         <Route path="/analytics" element={
           <ProtectedRoute requiredRole={['editor', 'admin']}>
             <AnalyticsPage />

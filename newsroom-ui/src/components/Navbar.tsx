@@ -88,6 +88,7 @@ export default function Navbar() {
     { label: 'Roster', path: '/roster' },
     { label: 'Calendar', path: '/calendar' },
     { label: 'Chat', path: '/chat' },
+    { label: 'Notes', path: '/notes' },
     { label: 'Ambient Scribe', path: '/ai-report' },
     { label: 'Analytics', path: '/analytics' },
   ]
@@ -96,6 +97,7 @@ export default function Navbar() {
     { label: 'Availability', path: '/availability' },
     { label: 'Calendar', path: '/calendar' },
     { label: 'Chat', path: '/chat' },
+    { label: 'Notes', path: '/notes' },
   ]
   const adminNav: NavItem[] = [
     { label: 'Settings', path: '/admin' },
