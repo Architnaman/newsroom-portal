@@ -251,10 +251,20 @@ export default function ReporterQueue() {
     setMergedVideoUrl(null)
     setMergeProgress(0)
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode, width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } },
-        audio: true
-      })
+      // Try back camera first, fall back to any available camera
+      let stream: MediaStream
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } },
+          audio: true
+        })
+        setFacingMode('environment')
+      } catch {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { width: { ideal: 1920 }, height: { ideal: 1080 } },
+          audio: true
+        })
+      }
       setVideoStream(stream)
       if (videoRef.current) videoRef.current.srcObject = stream
       const recorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp9,opus' })
@@ -455,25 +465,49 @@ export default function ReporterQueue() {
   }
 
   // ── PHOTO CAMERA ──
-  async function startCamera() {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false })
-      setCameraStream(stream)
-      setShowCamera(true)
-      setCapturedImage(null)
-      setCropRect(null)
-      setTimeout(() => {
-        const video = document.querySelector('video[data-photo-camera]') as HTMLVideoElement
-        if (video) video.srcObject = stream
-      }, 200)
-    } catch (err: any) { alert("Camera error: " + err.name + " — " + err.message) }
+  function startCamera() {
+    if (isMobile) {
+      // Mobile: open native camera app directly
+      const input = document.createElement('input')
+      input.type = 'file'
+      input.accept = 'image/*'
+      input.setAttribute('capture', 'environment')
+      input.onchange = (e: any) => {
+        const file = e.target.files?.[0]
+        if (!file) return
+        const reader = new FileReader()
+        reader.onload = ev => {
+          setCapturedImage(ev.target?.result as string)
+          setCropMode(true)
+          setCropRect(null)
+          setCropImageIndex(null)
+        }
+        reader.readAsDataURL(file)
+      }
+      input.click()
+    } else {
+      // Desktop: use in-browser getUserMedia stream
+      navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+        audio: false
+      }).then(stream => {
+        setCameraStream(stream)
+        setShowCamera(true)
+        setCapturedImage(null)
+        setCropRect(null)
+        setTimeout(() => {
+          const video = document.querySelector('video[data-photo-camera]') as HTMLVideoElement
+          if (video) video.srcObject = stream
+        }, 200)
+      }).catch(err => {
+        alert("Camera error: " + err.name + " — " + err.message)
+      })
+    }
   }
-
   function stopCamera() {
     if (cameraStream) { cameraStream.getTracks().forEach(track => track.stop()); setCameraStream(null) }
     setShowCamera(false)
   }
-
   function capturePhoto() {
     if (!canvasRef.current) return
     const video = document.querySelector('video[data-photo-camera]') as HTMLVideoElement
@@ -997,7 +1031,36 @@ export default function ReporterQueue() {
                 <div style={{ display: "flex", gap: "6px", marginBottom: "14px", flexWrap: "wrap" }}>
                   <button onClick={() => fileInputRef.current?.click()} style={{ flex: 1, padding: "10px", background: t.accentBg, border: `1px solid ${t.accentBorder}`, borderRadius: "8px", color: t.accent, fontSize: "11px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit", minHeight: "44px", minWidth: "60px" }}>📁 BROWSE</button>
                   <button onClick={startCamera} style={{ flex: 1, padding: "10px", background: t.warningBg, border: `1px solid ${t.warningBorder}`, borderRadius: "8px", color: t.warning, fontSize: "11px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit", minHeight: "44px", minWidth: "60px" }}>📷 PHOTO</button>
-                  <button onClick={() => { setShowVideoRecorder(true); setTimeout(() => startVideoRecording(), 300) }} style={{ flex: 1, padding: "10px", background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.4)", borderRadius: "8px", color: "#ef4444", fontSize: "11px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit", minHeight: "44px", minWidth: "60px" }}>🎥 VIDEO</button>
+                  <button onClick={() => {
+                    if (isMobile) {
+                      // Native camera app on mobile — back camera, full quality
+                      const input = document.createElement('input')
+                      input.type = 'file'
+                      input.accept = 'video/*'
+                      input.setAttribute('capture', 'environment')
+                      input.onchange = (e: any) => {
+                        const file = e.target.files?.[0]
+                        if (!file) return
+                        const url = URL.createObjectURL(file)
+                        const videoEl = document.createElement('video')
+                        videoEl.src = url
+                        videoEl.onloadedmetadata = () => {
+                          const dur = isFinite(videoEl.duration) && videoEl.duration > 0 ? Math.round(videoEl.duration) : 0
+                          setVideoClips([{ blob: file, url, duration: dur, trimStart: 0, trimEnd: dur }])
+                          setShowVideoRecorder(true)
+                        }
+                        videoEl.onerror = () => {
+                          setVideoClips([{ blob: file, url, duration: 0, trimStart: 0, trimEnd: 0 }])
+                          setShowVideoRecorder(true)
+                        }
+                      }
+                      input.click()
+                    } else {
+                      // Desktop: use MediaRecorder with back camera preference
+                      setShowVideoRecorder(true)
+                      setTimeout(() => startVideoRecording(), 300)
+                    }
+                  }} style={{ flex: 1, padding: "10px", background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.4)", borderRadius: "8px", color: "#ef4444", fontSize: "11px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit", minHeight: "44px", minWidth: "60px" }}>🎥 VIDEO</button>
                   <button onClick={() => setShowAudioRecorder(true)} style={{ flex: 1, padding: "10px", background: "rgba(167,139,250,0.1)", border: "1px solid rgba(167,139,250,0.4)", borderRadius: "8px", color: "#a78bfa", fontSize: "11px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit", minHeight: "44px", minWidth: "60px" }}>🎙️ AUDIO</button>
                   {isMobile && (
                     <button onClick={() => { const input = document.createElement("input"); input.type = "file"; input.accept = "image/*"; input.multiple = true; input.onchange = (e: any) => { const files = Array.from(e.target.files || []) as File[]; if (files.length) setSelectedFiles(prev => [...prev, ...files]) }; input.click() }}
