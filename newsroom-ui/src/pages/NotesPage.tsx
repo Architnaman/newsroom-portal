@@ -95,7 +95,7 @@ export default function NotesPage() {
       <div style={{ display: 'flex', height: 'calc(100vh - 64px)', maxWidth: '1400px', margin: '0 auto', gap: '0' }}>
 
         {/* ── STORY LIST SIDEBAR ── */}
-        <div style={{ width: isMobile ? '100%' : '340px', flexShrink: 0, borderRight: `1px solid ${t.borderCard}`, background: t.bgCard, display: 'flex', flexDirection: 'column', overflow: 'hidden', display: selectedStory && isMobile ? 'none' : 'flex' }}>
+        <div style={{ width: isMobile ? '100%' : '340px', flexShrink: 0, borderRight: `1px solid ${t.borderCard}`, background: t.bgCard, display: selectedStory && isMobile ? 'none' : 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           <div style={{ padding: '16px', borderBottom: `1px solid ${t.borderCard}` }}>
             <h1 style={{ margin: '0 0 4px', fontSize: '18px', fontWeight: '700', color: t.textPrimary }}>Reporter Notes</h1>
             <p style={{ margin: '0 0 12px', fontSize: '12px', color: t.textMuted }}>Active stories — select to view and add notes</p>
@@ -123,7 +123,7 @@ export default function NotesPage() {
         </div>
 
         {/* ── NOTES PANEL ── */}
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, display: !selectedStory && isMobile ? 'none' : 'flex' }}>
+        <div style={{ flex: 1, display: !selectedStory && isMobile ? 'none' : 'flex', flexDirection: 'column', minWidth: 0 }}>
           {!selectedStory ? (
             <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: '12px', color: t.textDisabled }}>
               <div style={{ fontSize: '48px' }}>📝</div>
