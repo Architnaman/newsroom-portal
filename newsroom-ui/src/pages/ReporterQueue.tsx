@@ -40,7 +40,40 @@ export default function ReporterQueue() {
   const [cropRect, setCropRect] = useState<{x: number, y: number, w: number, h: number} | null>(null)
   const [isCropping, setIsCropping] = useState(false)
   const [cropImageIndex, setCropImageIndex] = useState<number | null>(null)
+
+  // ── Video recording states ──
+  const [showVideoRecorder, setShowVideoRecorder] = useState(false)
+  const [videoRecording, setVideoRecording] = useState(false)
+  const [videoRecordingTime, setVideoRecordingTime] = useState(0)
+  const [videoClips, setVideoClips] = useState<{ blob: Blob; url: string; duration: number; trimStart: number; trimEnd: number }[]>([])
+  const [videoStream, setVideoStream] = useState<MediaStream | null>(null)
+  const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment')
+  const [showTrimEditor, setShowTrimEditor] = useState<number | null>(null)
+  const [mergingVideo, setMergingVideo] = useState(false)
+  const [mergeProgress, setMergeProgress] = useState(0)
+  const [mergedVideoUrl, setMergedVideoUrl] = useState<string | null>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
+  const videoMediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const videoChunksRef = useRef<Blob[]>([])
+  const videoTimerRef = useRef<any>(null)
+  const videoRecordingTimeRef = useRef(0)
+
+  // ── Audio recording states ──
+  const [showAudioRecorder, setShowAudioRecorder] = useState(false)
+  const [audioRecording, setAudioRecording] = useState(false)
+  const [audioRecordingTime, setAudioRecordingTime] = useState(0)
+  const [audioBlobs, setAudioBlobs] = useState<{ blob: Blob; url: string; duration: number }[]>([])
+  const audioMediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const audioChunksRef = useRef<Blob[]>([])
+  const audioTimerRef = useRef<any>(null)
+
+  // ── Notes attachment states ──
+  const [storyNotes, setStoryNotes] = useState<any[]>([])
+  const [notesReporters, setNotesReporters] = useState<Record<string, string>>({})
+  const [selectedNoteIds, setSelectedNoteIds] = useState<string[]>([])
+  const [loadingNotes, setLoadingNotes] = useState(false)
+
+  const videoPreviewRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const cropCanvasRef = useRef<HTMLCanvasElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -53,18 +86,11 @@ export default function ReporterQueue() {
     assigned: t.warning, in_progress: t.success, filed: "#a78bfa", published: t.success
   }
 
-  // ── Helper: get editor emails for notifications ──
   async function getEditorEmails(): Promise<string[]> {
-    const { data } = await supabase
-      .from("profiles")
-      .select("reporter_id")
-      .eq("role", "editor")
+    const { data } = await supabase.from("profiles").select("reporter_id").eq("role", "editor")
     const reporterIds = (data || []).map((p: any) => p.reporter_id).filter(Boolean)
     if (reporterIds.length === 0) return []
-    const { data: editorReporters } = await supabase
-      .from("reporters")
-      .select("email")
-      .in("id", reporterIds)
+    const { data: editorReporters } = await supabase.from("reporters").select("email").in("id", reporterIds)
     return (editorReporters || []).map((r: any) => r.email).filter(Boolean)
   }
 
@@ -115,7 +141,6 @@ export default function ReporterQueue() {
         }).eq("id", story.assignment_id)
         await supabase.from("stories").update({ status: "unassigned" }).eq("id", story.id)
       }
-
       const editorEmails = await getEditorEmails()
       editorEmails.forEach(email => {
         sendNotification({
@@ -131,10 +156,27 @@ export default function ReporterQueue() {
           story_id: story.id,
         })
       })
-
       setOverrideModal(null); setOverrideResponse(""); await load()
     } catch (err: any) { alert("Error: " + err.message) }
     setOverrideLoading(false)
+  }
+
+  async function loadStoryNotes(storyId: string) {
+    setLoadingNotes(true)
+    const { data } = await supabase
+      .from('reporter_notes')
+      .select('*')
+      .eq('story_id', storyId)
+      .order('created_at', { ascending: false })
+    setStoryNotes(data || [])
+    if ((data || []).length > 0) {
+      const rIds = [...new Set((data || []).map((n: any) => n.reporter_id))]
+      const { data: rData } = await supabase.from('reporters').select('id, name').in('id', rIds)
+      const map: Record<string, string> = {}
+      ;(rData || []).forEach((r: any) => { map[r.id] = r.name })
+      setNotesReporters(map)
+    }
+    setLoadingNotes(false)
   }
 
   async function uploadAndFile() {
@@ -143,39 +185,31 @@ export default function ReporterQueue() {
     try {
       const uploadedUrls: string[] = []
       const uploadedNames: string[] = []
-
       for (let i = 0; i < selectedFiles.length; i++) {
         const file = selectedFiles[i]
-        // Unique filename — story id + timestamp + random to avoid collisions
-        const fileExt = file.name.split(".").pop() || "bin"
         const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_")
         const fileName = `${fileModal.id}_${Date.now()}_${Math.random().toString(36).slice(2)}_${safeName}`
-
-        const { error: uploadError } = await supabase.storage
-          .from("story-files").upload(fileName, file, { upsert: true })
-
-        if (uploadError) {
-          alert(`Upload failed for ${file.name}: ${uploadError.message}`)
-          continue
-        }
-
+        const { error: uploadError } = await supabase.storage.from("story-files").upload(fileName, file, { upsert: true })
+        if (uploadError) { alert(`Upload failed for ${file.name}: ${uploadError.message}`); continue }
         const { data: urlData } = supabase.storage.from("story-files").getPublicUrl(fileName)
         uploadedUrls.push(urlData.publicUrl)
         uploadedNames.push(file.name)
       }
+      if (uploadedUrls.length === 0) { alert("No files were uploaded successfully."); setUploadingId(null); return }
 
-      if (uploadedUrls.length === 0) {
-        alert("No files were uploaded successfully.")
-        setUploadingId(null)
-        return
+      // ── Build attached notes text ──
+      let filedNotesText: string | null = null
+      if (selectedNoteIds.length > 0) {
+        const attachedNotes = storyNotes.filter(n => selectedNoteIds.includes(n.id))
+        filedNotesText = attachedNotes.map(n =>
+          `[${notesReporters[n.reporter_id] || 'Reporter'}] ${new Date(n.created_at).toLocaleDateString()}: ${n.note_text}`
+        ).join('\n\n')
       }
 
-      // ── KEY FIX: Store ALL urls as JSON array so editor can open each one ──
       await supabase.from("stories").update({
-        status: "filed",
-        filed_file_url: JSON.stringify(uploadedUrls),
-        filed_file_name: uploadedNames.join(", "),
-        filed_at: new Date().toISOString()
+        status: "filed", filed_file_url: JSON.stringify(uploadedUrls),
+        filed_file_name: uploadedNames.join(", "), filed_at: new Date().toISOString(),
+        filed_notes: filedNotesText
       }).eq("id", fileModal.id)
 
       const editorEmails = await getEditorEmails()
@@ -186,106 +220,279 @@ export default function ReporterQueue() {
           body_lines: [
             `A reporter has filed their report for <strong>"${fileModal.headline}"</strong>.`,
             `${uploadedNames.length} file(s) submitted: ${uploadedNames.join(", ")}`,
+            selectedNoteIds.length > 0 ? `${selectedNoteIds.length} reporter note(s) attached.` : '',
             `Please review and publish from the Story Board.`,
-          ],
+          ].filter(Boolean),
           notification_type: "story_filed",
           reporter_id: reporterId || undefined,
           story_id: fileModal.id,
         })
       })
-
-      closeFileModal()
-      await load()
-    } catch (err: any) {
-      alert("Error: " + err.message)
-    }
+      closeFileModal(); await load()
+    } catch (err: any) { alert("Error: " + err.message) }
     setUploadingId(null)
   }
 
   function closeFileModal() {
-    stopCamera()
+    stopVideoRecording(); stopAudioRecording()
+    setShowVideoRecorder(false); setShowAudioRecorder(false)
+    setVideoClips([]); setAudioBlobs([])
+    setMergedVideoUrl(null); setMergeProgress(0); setMergingVideo(false)
+    setShowTrimEditor(null)
+    if (videoStream) { videoStream.getTracks().forEach(t => t.stop()); setVideoStream(null) }
     setFileModal(null); setSelectedFiles([]); setDragOver(false)
     setShowCamera(false); setCapturedImage(null); setCropMode(false)
     setCropRect(null); setCropStart(null); setCropImageIndex(null)
+    setStoryNotes([]); setSelectedNoteIds([]); setNotesReporters({})
   }
 
-  const handleDragOver = useCallback((e: React.DragEvent) => {
-    e.preventDefault(); setDragOver(true)
-  }, [])
-
-  const handleDragLeave = useCallback((e: React.DragEvent) => {
-    e.preventDefault(); setDragOver(false)
-  }, [])
-
-  const handleDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault(); setDragOver(false)
-    const files = Array.from(e.dataTransfer.files)
-    if (files.length) setSelectedFiles(prev => [...prev, ...files])
-  }, [])
-
-  async function startCamera() {
+  // ── VIDEO RECORDING ──
+  async function startVideoRecording() {
+    setMergedVideoUrl(null)
+    setMergeProgress(0)
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: isMobile ? "environment" : "user" }, audio: false
+        video: { facingMode, width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } },
+        audio: true
       })
+      setVideoStream(stream)
+      if (videoRef.current) videoRef.current.srcObject = stream
+      const recorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp9,opus' })
+      videoMediaRecorderRef.current = recorder
+      videoChunksRef.current = []
+      recorder.ondataavailable = e => { if (e.data.size > 0) videoChunksRef.current.push(e.data) }
+      recorder.onstop = () => {
+        const blob = new Blob(videoChunksRef.current, { type: 'video/webm' })
+        const url = URL.createObjectURL(blob)
+        const capturedDuration = videoRecordingTimeRef.current
+        const tempVideo = document.createElement('video')
+        tempVideo.src = url
+        tempVideo.onloadedmetadata = () => {
+          const dur = isFinite(tempVideo.duration) && tempVideo.duration > 0
+            ? Math.round(tempVideo.duration)
+            : capturedDuration
+          setVideoClips(prev => [...prev, { blob, url, duration: dur, trimStart: 0, trimEnd: dur }])
+          setVideoRecordingTime(0)
+          videoRecordingTimeRef.current = 0
+        }
+        tempVideo.onerror = () => {
+          setVideoClips(prev => [...prev, { blob, url, duration: capturedDuration, trimStart: 0, trimEnd: capturedDuration }])
+          setVideoRecordingTime(0)
+          videoRecordingTimeRef.current = 0
+        }
+      }
+      recorder.start(100)
+      setVideoRecording(true)
+      videoTimerRef.current = setInterval(() => {
+        videoRecordingTimeRef.current += 1
+        setVideoRecordingTime(videoRecordingTimeRef.current)
+      }, 1000)
+    } catch (err: any) {
+      alert("Camera/microphone access denied: " + err.message)
+    }
+  }
+
+  function stopVideoRecording() {
+    if (videoMediaRecorderRef.current && videoRecording) {
+      videoMediaRecorderRef.current.stop()
+      setVideoRecording(false)
+      clearInterval(videoTimerRef.current)
+    }
+    if (videoStream) { videoStream.getTracks().forEach(t => t.stop()); setVideoStream(null) }
+  }
+
+  async function switchCamera() {
+    if (videoStream) { videoStream.getTracks().forEach(t => t.stop()) }
+    const newMode = facingMode === 'environment' ? 'user' : 'environment'
+    setFacingMode(newMode)
+    if (videoRecording) {
+      stopVideoRecording()
+      setTimeout(() => startVideoRecording(), 300)
+    } else {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: newMode, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: true
+        })
+        setVideoStream(stream)
+        if (videoRef.current) videoRef.current.srcObject = stream
+      } catch {}
+    }
+  }
+
+  async function trimVideoClip(url: string, trimStart: number, trimEnd: number, originalBlob: Blob): Promise<Blob> {
+    return new Promise((resolve) => {
+      const video = document.createElement('video')
+      video.src = url
+      video.preload = 'auto'
+      video.muted = true
+
+      video.onloadeddata = () => { video.currentTime = trimStart }
+
+      video.onseeked = () => {
+        try {
+          const stream = (video as any).captureStream
+            ? (video as any).captureStream()
+            : (video as any).mozCaptureStream
+              ? (video as any).mozCaptureStream()
+              : null
+
+          if (!stream) { resolve(originalBlob); return }
+
+          const recorder = new MediaRecorder(stream, {
+            mimeType: MediaRecorder.isTypeSupported('video/webm;codecs=vp9') ? 'video/webm;codecs=vp9' : 'video/webm'
+          })
+          const chunks: Blob[] = []
+
+          recorder.ondataavailable = (e: BlobEvent) => { if (e.data && e.data.size > 0) chunks.push(e.data) }
+          recorder.onstop = () => {
+            stream.getTracks().forEach((t: MediaStreamTrack) => t.stop())
+            const result = new Blob(chunks, { type: 'video/webm' })
+            console.log('[trim] result size:', result.size, 'original:', originalBlob.size)
+            resolve(result.size > 5000 ? result : originalBlob)
+          }
+
+          recorder.start(100)
+          video.play()
+
+          const onTimeUpdate = () => {
+            if (video.currentTime >= trimEnd) {
+              video.pause()
+              video.removeEventListener('timeupdate', onTimeUpdate)
+              if (recorder.state === 'recording') recorder.stop()
+            }
+          }
+          video.addEventListener('timeupdate', onTimeUpdate)
+
+          setTimeout(() => {
+            if (recorder.state === 'recording') {
+              video.pause()
+              video.removeEventListener('timeupdate', onTimeUpdate)
+              recorder.stop()
+            }
+          }, (trimEnd - trimStart + 3) * 1000)
+
+        } catch (e) {
+          console.error('[trim] captureStream failed:', e)
+          resolve(originalBlob)
+        }
+      }
+
+      video.onerror = (e) => { console.error('[trim] video error:', e); resolve(originalBlob) }
+    })
+  }
+
+  async function addClipsToFiles() {
+    if (videoClips.length === 0) return
+    setMergingVideo(true)
+    setMergeProgress(0)
+    const files: File[] = []
+
+    for (let i = 0; i < videoClips.length; i++) {
+      const clip = videoClips[i]
+      const fileName = `video_clip_${i + 1}_of_${videoClips.length}_${Date.now()}.webm`
+      try {
+        const trimmed = await trimVideoClip(clip.url, clip.trimStart, clip.trimEnd, clip.blob)
+        files.push(new File([trimmed], fileName, { type: 'video/webm' }))
+      } catch {
+        files.push(new File([clip.blob], fileName, { type: 'video/webm' }))
+      }
+      setMergeProgress(Math.round(((i + 1) / videoClips.length) * 100))
+    }
+
+    setSelectedFiles(prev => [...prev, ...files])
+    setMergeProgress(100)
+    setMergedVideoUrl(URL.createObjectURL(files[0]))
+    setMergingVideo(false)
+  }
+
+  function updateTrim(index: number, field: 'trimStart' | 'trimEnd', value: number) {
+    setVideoClips(prev => prev.map((clip, i) => i === index ? { ...clip, [field]: Math.max(0, Math.min(value, clip.duration)) } : clip))
+  }
+
+  function deleteClip(index: number) {
+    setVideoClips(prev => prev.filter((_, i) => i !== index))
+    if (showTrimEditor === index) setShowTrimEditor(null)
+    setMergedVideoUrl(null)
+    setMergeProgress(0)
+  }
+
+  // ── AUDIO RECORDING ──
+  async function startAudioRecording() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const recorder = new MediaRecorder(stream)
+      audioMediaRecorderRef.current = recorder
+      audioChunksRef.current = []
+      recorder.ondataavailable = e => { if (e.data.size > 0) audioChunksRef.current.push(e.data) }
+      recorder.onstop = () => {
+        const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' })
+        const url = URL.createObjectURL(blob)
+        const duration = audioRecordingTime
+        setAudioBlobs(prev => [...prev, { blob, url, duration }])
+        setAudioRecordingTime(0)
+        stream.getTracks().forEach(t => t.stop())
+      }
+      recorder.start()
+      setAudioRecording(true)
+      audioTimerRef.current = setInterval(() => setAudioRecordingTime(p => p + 1), 1000)
+    } catch (err: any) { alert("Microphone access denied: " + err.message) }
+  }
+
+  function stopAudioRecording() {
+    if (audioMediaRecorderRef.current && audioRecording) {
+      audioMediaRecorderRef.current.stop()
+      setAudioRecording(false)
+      clearInterval(audioTimerRef.current)
+    }
+  }
+
+  function addAudioToFiles(index: number) {
+    const audio = audioBlobs[index]
+    if (!audio) return
+    const file = new File([audio.blob], `audio_report_${Date.now()}.webm`, { type: 'audio/webm' })
+    setSelectedFiles(prev => [...prev, file])
+    setAudioBlobs(prev => prev.filter((_, i) => i !== index))
+  }
+
+  // ── PHOTO CAMERA ──
+  async function startCamera() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false })
       setCameraStream(stream)
       setShowCamera(true)
       setCapturedImage(null)
       setCropRect(null)
       setTimeout(() => {
-        if (videoRef.current) videoRef.current.srcObject = stream
-      }, 100)
-    } catch {
-      alert("Camera not available. Please use file upload instead.")
-    }
+        const video = document.querySelector('video[data-photo-camera]') as HTMLVideoElement
+        if (video) video.srcObject = stream
+      }, 200)
+    } catch (err: any) { alert("Camera error: " + err.name + " — " + err.message) }
   }
 
   function stopCamera() {
-    if (cameraStream) {
-      cameraStream.getTracks().forEach(track => track.stop())
-      setCameraStream(null)
-    }
+    if (cameraStream) { cameraStream.getTracks().forEach(track => track.stop()); setCameraStream(null) }
     setShowCamera(false)
   }
 
   function capturePhoto() {
-    if (!videoRef.current || !canvasRef.current) return
-    const video = videoRef.current
+    if (!canvasRef.current) return
+    const video = document.querySelector('video[data-photo-camera]') as HTMLVideoElement
+    if (!video) return
     const canvas = canvasRef.current
-    canvas.width = video.videoWidth
-    canvas.height = video.videoHeight
+    canvas.width = video.videoWidth; canvas.height = video.videoHeight
     const ctx = canvas.getContext("2d")
     if (!ctx) return
     ctx.drawImage(video, 0, 0)
     const dataUrl = canvas.toDataURL("image/jpeg", 0.9)
-    setCapturedImage(dataUrl)
-    stopCamera()
-    setCropMode(true)
-    setCropRect(null)
+    setCapturedImage(dataUrl); stopCamera(); setCropMode(true); setCropRect(null)
   }
 
   function getCropCoords(e: React.MouseEvent<HTMLDivElement>, container: HTMLDivElement) {
     const rect = container.getBoundingClientRect()
-    return {
-      x: Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)),
-      y: Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height))
-    }
+    return { x: Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)), y: Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height)) }
   }
-
-  function onCropMouseDown(e: React.MouseEvent<HTMLDivElement>) {
-    const pos = getCropCoords(e, e.currentTarget)
-    setCropStart(pos); setIsCropping(true); setCropRect(null)
-  }
-
-  function onCropMouseMove(e: React.MouseEvent<HTMLDivElement>) {
-    if (!isCropping || !cropStart) return
-    const pos = getCropCoords(e, e.currentTarget)
-    setCropRect({
-      x: Math.min(cropStart.x, pos.x), y: Math.min(cropStart.y, pos.y),
-      w: Math.abs(pos.x - cropStart.x), h: Math.abs(pos.y - cropStart.y)
-    })
-  }
-
+  function onCropMouseDown(e: React.MouseEvent<HTMLDivElement>) { const pos = getCropCoords(e, e.currentTarget); setCropStart(pos); setIsCropping(true); setCropRect(null) }
+  function onCropMouseMove(e: React.MouseEvent<HTMLDivElement>) { if (!isCropping || !cropStart) return; const pos = getCropCoords(e, e.currentTarget); setCropRect({ x: Math.min(cropStart.x, pos.x), y: Math.min(cropStart.y, pos.y), w: Math.abs(pos.x - cropStart.x), h: Math.abs(pos.y - cropStart.y) }) }
   function onCropMouseUp() { setIsCropping(false) }
 
   function applyCrop() {
@@ -302,12 +509,8 @@ export default function ReporterQueue() {
       canvas.toBlob(blob => {
         if (blob) {
           const file = new File([blob], `capture_${Date.now()}.jpg`, { type: "image/jpeg" })
-          if (cropImageIndex !== null) {
-            setSelectedFiles(prev => prev.map((f, i) => i === cropImageIndex ? file : f))
-            setCropImageIndex(null)
-          } else {
-            setSelectedFiles(prev => [...prev, file])
-          }
+          if (cropImageIndex !== null) { setSelectedFiles(prev => prev.map((f, i) => i === cropImageIndex ? file : f)); setCropImageIndex(null) }
+          else { setSelectedFiles(prev => [...prev, file]) }
           setCapturedImage(null); setCropMode(false); setCropRect(null)
         }
       }, "image/jpeg", 0.9)
@@ -319,12 +522,8 @@ export default function ReporterQueue() {
     if (!capturedImage) return
     fetch(capturedImage).then(r => r.blob()).then(blob => {
       const file = new File([blob], `capture_${Date.now()}.jpg`, { type: "image/jpeg" })
-      if (cropImageIndex !== null) {
-        setSelectedFiles(prev => prev.map((f, i) => i === cropImageIndex ? file : f))
-        setCropImageIndex(null)
-      } else {
-        setSelectedFiles(prev => [...prev, file])
-      }
+      if (cropImageIndex !== null) { setSelectedFiles(prev => prev.map((f, i) => i === cropImageIndex ? file : f)); setCropImageIndex(null) }
+      else { setSelectedFiles(prev => [...prev, file]) }
       setCapturedImage(null); setCropMode(false)
     })
   }
@@ -333,10 +532,7 @@ export default function ReporterQueue() {
     const file = selectedFiles[index]
     if (!file.type.startsWith("image/")) return
     const reader = new FileReader()
-    reader.onload = e => {
-      setCapturedImage(e.target?.result as string)
-      setCropMode(true); setCropRect(null); setCropImageIndex(index)
-    }
+    reader.onload = e => { setCapturedImage(e.target?.result as string); setCropMode(true); setCropRect(null); setCropImageIndex(index) }
     reader.readAsDataURL(file)
   }
 
@@ -344,12 +540,16 @@ export default function ReporterQueue() {
     const type = file.type
     if (type.startsWith("image/")) return "🖼️"
     if (type.includes("pdf")) return "📄"
+    if (type.startsWith("video/")) return "🎬"
+    if (type.startsWith("audio/")) return "🎵"
     if (type.includes("word") || file.name.endsWith(".doc") || file.name.endsWith(".docx")) return "📘"
     if (type.includes("sheet") || file.name.endsWith(".xlsx") || file.name.endsWith(".csv")) return "📊"
-    if (type.includes("video")) return "🎬"
-    if (type.includes("audio")) return "🎵"
     return "📎"
   }
+
+  const handleDragOver = useCallback((e: React.DragEvent) => { e.preventDefault(); setDragOver(true) }, [])
+  const handleDragLeave = useCallback((e: React.DragEvent) => { e.preventDefault(); setDragOver(false) }, [])
+  const handleDrop = useCallback((e: React.DragEvent) => { e.preventDefault(); setDragOver(false); const files = Array.from(e.dataTransfer.files); if (files.length) setSelectedFiles(prev => [...prev, ...files]) }, [])
 
   const active = stories.filter(s => s.status !== "filed" && s.status !== "published")
   const filed = stories.filter(s => s.status === "filed" || s.status === "published")
@@ -360,12 +560,16 @@ export default function ReporterQueue() {
     return t.danger
   }
 
+  function formatSeconds(s: number) {
+    const m = Math.floor(s / 60).toString().padStart(2, '0')
+    const sec = (s % 60).toString().padStart(2, '0')
+    return `${m}:${sec}`
+  }
+
   const inputStyle: React.CSSProperties = {
-    width: "100%", padding: "10px 14px",
-    background: t.bgInput, border: `1px solid ${t.borderInput}`,
-    borderRadius: "8px", color: t.textPrimary,
-    fontSize: isMobile ? "16px" : "13px",
-    outline: "none", boxSizing: "border-box",
+    width: "100%", padding: "10px 14px", background: t.bgInput,
+    border: `1px solid ${t.borderInput}`, borderRadius: "8px", color: t.textPrimary,
+    fontSize: isMobile ? "16px" : "13px", outline: "none", boxSizing: "border-box",
     fontFamily: "inherit", resize: "none" as const,
   }
 
@@ -435,7 +639,7 @@ export default function ReporterQueue() {
                               </button>
                             )}
                             {story.status === "in_progress" && (
-                              <button onClick={() => setFileModal(story)} style={{ padding: "10px 18px", background: "rgba(167,139,250,0.1)", border: "1px solid rgba(167,139,250,0.35)", borderRadius: "6px", color: "#a78bfa", fontSize: "11px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap", flex: isMobile ? 1 : "none", minHeight: "44px" }}>
+                              <button onClick={() => { setFileModal(story); loadStoryNotes(story.id) }} style={{ padding: "10px 18px", background: "rgba(167,139,250,0.1)", border: "1px solid rgba(167,139,250,0.35)", borderRadius: "6px", color: "#a78bfa", fontSize: "11px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap", flex: isMobile ? 1 : "none", minHeight: "44px" }}>
                                 FILE REPORT
                               </button>
                             )}
@@ -519,7 +723,7 @@ export default function ReporterQueue() {
         )}
       </main>
 
-      {/* View Full Report Modal */}
+      {/* ── VIEW FULL REPORT MODAL ── */}
       {viewReportModal && (
         <div style={{ position: "fixed", inset: 0, background: t.overlayBg, display: "flex", alignItems: isMobile ? "flex-end" : "center", justifyContent: "center", zIndex: 1000 }}
           onClick={e => { if (e.target === e.currentTarget) setViewReportModal(null) }}>
@@ -552,7 +756,7 @@ export default function ReporterQueue() {
         </div>
       )}
 
-      {/* Override Modal */}
+      {/* ── OVERRIDE MODAL ── */}
       {overrideModal && (
         <div role="dialog" aria-modal="true"
           style={{ position: "fixed", inset: 0, background: t.overlayBg, display: "flex", alignItems: isMobile ? "flex-end" : "center", justifyContent: "center", zIndex: 1000 }}
@@ -591,9 +795,8 @@ export default function ReporterQueue() {
         <div role="dialog" aria-modal="true"
           style={{ position: "fixed", inset: 0, background: t.overlayBg, display: "flex", alignItems: isMobile ? "flex-end" : "center", justifyContent: "center", zIndex: 1000 }}
           onClick={e => { if (e.target === e.currentTarget) closeFileModal() }}>
-          <div style={{ background: t.bgCard, border: "1px solid rgba(167,139,250,0.35)", borderRadius: isMobile ? "14px 14px 0 0" : "12px", width: "100%", maxWidth: isMobile ? "100%" : "560px", margin: isMobile ? "0" : "24px", padding: isMobile ? "20px 16px" : "28px", fontFamily: "inherit", boxShadow: t.shadow, maxHeight: isMobile ? "92vh" : "90vh", overflowY: "auto" }}>
+          <div style={{ background: t.bgCard, border: "1px solid rgba(167,139,250,0.35)", borderRadius: isMobile ? "14px 14px 0 0" : "12px", width: "100%", maxWidth: isMobile ? "100%" : "600px", margin: isMobile ? "0" : "24px", padding: isMobile ? "20px 16px" : "28px", fontFamily: "inherit", boxShadow: t.shadow, maxHeight: isMobile ? "95vh" : "92vh", overflowY: "auto" }}>
 
-            {/* Header */}
             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "8px", alignItems: "center" }}>
               <h2 style={{ color: t.textPrimary, margin: 0, fontSize: isMobile ? "16px" : "18px", fontWeight: "700" }}>File Report</h2>
               <button onClick={closeFileModal} style={{ background: "none", border: "none", color: t.textMuted, fontSize: "22px", cursor: "pointer", minWidth: "44px", minHeight: "44px" }}>x</button>
@@ -602,144 +805,221 @@ export default function ReporterQueue() {
               Submit for: <span style={{ color: t.textPrimary, fontWeight: "600" }}>{fileModal.headline}</span>
             </p>
 
-            {/* ── CAMERA VIEW ── */}
-            {showCamera && (
+            {/* ── VIDEO RECORDER ── */}
+            {showVideoRecorder && !showAudioRecorder && !showCamera && !cropMode && (
+              <div style={{ marginBottom: "16px", padding: "16px", background: t.bgPage, border: `1px solid ${t.borderCard}`, borderRadius: "10px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+                  <p style={{ color: t.accent, fontSize: "12px", fontWeight: "700", margin: 0, letterSpacing: "0.5px" }}>🎥 VIDEO RECORDER</p>
+                  <div style={{ display: "flex", gap: "6px" }}>
+                    <button onClick={switchCamera} style={{ padding: "5px 10px", background: t.accentBg, border: `1px solid ${t.accentBorder}`, borderRadius: "6px", color: t.accent, fontSize: "11px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit" }}>
+                      {facingMode === 'environment' ? '🤳 FRONT' : '📷 BACK'}
+                    </button>
+                    <button onClick={() => { stopVideoRecording(); setShowVideoRecorder(false); if (videoStream) videoStream.getTracks().forEach(t => t.stop()) }}
+                      style={{ padding: "5px 10px", background: t.dangerBg, border: `1px solid ${t.dangerBorder}`, borderRadius: "6px", color: t.danger, fontSize: "11px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit" }}>
+                      CLOSE
+                    </button>
+                  </div>
+                </div>
+                <div style={{ position: "relative", borderRadius: "8px", overflow: "hidden", background: "#000", marginBottom: "10px", aspectRatio: "16/9" }}>
+                  <video ref={videoRef} autoPlay playsInline muted style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+                  {videoRecording && (
+                    <div style={{ position: "absolute", top: "10px", left: "10px", display: "flex", alignItems: "center", gap: "6px", padding: "4px 10px", background: "rgba(0,0,0,0.7)", borderRadius: "6px" }}>
+                      <div style={{ width: "8px", height: "8px", borderRadius: "50%", background: t.danger, animation: "pulse 1s infinite" }} />
+                      <span style={{ color: "#fff", fontSize: "12px", fontWeight: "700" }}>{formatSeconds(videoRecordingTime)}</span>
+                      <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}`}</style>
+                    </div>
+                  )}
+                  {videoClips.length > 0 && !videoRecording && (
+                    <div style={{ position: "absolute", top: "10px", right: "10px", padding: "4px 10px", background: "rgba(0,0,0,0.7)", borderRadius: "6px" }}>
+                      <span style={{ color: "#fff", fontSize: "11px", fontWeight: "700" }}>{videoClips.length} CLIP{videoClips.length > 1 ? 'S' : ''}</span>
+                    </div>
+                  )}
+                </div>
+                <div style={{ display: "flex", gap: "8px", marginBottom: "12px" }}>
+                  {!videoRecording ? (
+                    <button onClick={startVideoRecording} style={{ flex: 1, padding: "12px", background: t.danger, border: "none", borderRadius: "8px", color: "#fff", fontSize: "13px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit", minHeight: "44px", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
+                      <span style={{ fontSize: "16px" }}>🔴</span> {videoClips.length > 0 ? 'RECORD ANOTHER CLIP' : 'START RECORDING'}
+                    </button>
+                  ) : (
+                    <button onClick={stopVideoRecording} style={{ flex: 1, padding: "12px", background: t.bgCard, border: `2px solid ${t.danger}`, borderRadius: "8px", color: t.danger, fontSize: "13px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit", minHeight: "44px", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
+                      <span style={{ fontSize: "16px" }}>⏹</span> STOP RECORDING
+                    </button>
+                  )}
+                </div>
+                {videoClips.length > 0 && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "12px" }}>
+                    <p style={{ color: t.textMuted, fontSize: "11px", fontWeight: "700", letterSpacing: "0.5px", margin: "0 0 4px" }}>RECORDED CLIPS</p>
+                    {videoClips.map((clip, idx) => (
+                      <div key={idx} style={{ padding: "12px", background: t.bgCard, borderRadius: "8px", border: `1px solid ${t.borderCard}` }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: showTrimEditor === idx ? "10px" : "0" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                            <span style={{ fontSize: "20px" }}>🎬</span>
+                            <div>
+                              <p style={{ color: t.textPrimary, fontSize: "12px", fontWeight: "700", margin: 0 }}>Clip {idx + 1}</p>
+                              <p style={{ color: t.textMuted, fontSize: "11px", margin: 0 }}>{formatSeconds(clip.duration)} · Trim: {formatSeconds(clip.trimStart)}–{formatSeconds(clip.trimEnd)}</p>
+                            </div>
+                          </div>
+                          <div style={{ display: "flex", gap: "6px" }}>
+                            <button onClick={() => setShowTrimEditor(showTrimEditor === idx ? null : idx)}
+                              style={{ padding: "5px 10px", background: t.accentBg, border: `1px solid ${t.accentBorder}`, borderRadius: "5px", color: t.accent, fontSize: "10px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit" }}>✂️ TRIM</button>
+                            <button onClick={() => { const a = document.createElement('a'); a.href = clip.url; a.download = `clip_${idx + 1}.webm`; a.click() }}
+                              style={{ padding: "5px 10px", background: t.successBg, border: `1px solid ${t.successBorder}`, borderRadius: "5px", color: t.success, fontSize: "10px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit" }}>👁 PREVIEW</button>
+                            <button onClick={() => deleteClip(idx)}
+                              style={{ padding: "5px 8px", background: t.dangerBg, border: `1px solid ${t.dangerBorder}`, borderRadius: "5px", color: t.danger, fontSize: "12px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit" }}>✕</button>
+                          </div>
+                        </div>
+                        {showTrimEditor === idx && (
+                          <div style={{ paddingTop: "10px", borderTop: `1px solid ${t.borderCard}` }}>
+                            <p style={{ color: t.textMuted, fontSize: "11px", fontWeight: "600", margin: "0 0 8px" }}>TRIM START: {formatSeconds(clip.trimStart)}</p>
+                            <input type="range" min={0} max={clip.duration} step={1} value={clip.trimStart}
+                              onChange={e => updateTrim(idx, 'trimStart', Number(e.target.value))}
+                              style={{ width: "100%", marginBottom: "10px", accentColor: t.accent }} />
+                            <p style={{ color: t.textMuted, fontSize: "11px", fontWeight: "600", margin: "0 0 8px" }}>TRIM END: {formatSeconds(clip.trimEnd)}</p>
+                            <input type="range" min={0} max={clip.duration} step={1} value={clip.trimEnd}
+                              onChange={e => updateTrim(idx, 'trimEnd', Number(e.target.value))}
+                              style={{ width: "100%", accentColor: t.accent }} />
+                            <p style={{ color: t.accent, fontSize: "11px", fontWeight: "600", margin: "8px 0 0" }}>Selected duration: {formatSeconds(clip.trimEnd - clip.trimStart)}</p>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {videoClips.length > 0 && !videoRecording && (
+                  <div>
+                    {mergedVideoUrl ? (
+                      <div style={{ padding: "12px", background: t.successBg, border: `1px solid ${t.successBorder}`, borderRadius: "8px" }}>
+                        <p style={{ color: t.success, fontSize: "12px", fontWeight: "700", margin: "0 0 8px" }}>✅ {videoClips.length} video clip{videoClips.length > 1 ? 's' : ''} added to files!</p>
+                        <video src={mergedVideoUrl} controls style={{ width: "100%", borderRadius: "6px", maxHeight: "160px" }} />
+                      </div>
+                    ) : mergingVideo ? (
+                      <div style={{ padding: "12px", background: t.accentBg, border: `1px solid ${t.accentBorder}`, borderRadius: "8px" }}>
+                        <p style={{ color: t.accent, fontSize: "12px", fontWeight: "700", margin: "0 0 8px" }}>⚙️ Adding clips... {mergeProgress}%</p>
+                        <div style={{ height: "6px", background: t.bgPage, borderRadius: "3px", overflow: "hidden" }}>
+                          <div style={{ height: "100%", background: t.accent, width: `${mergeProgress}%`, transition: "width 0.3s", borderRadius: "3px" }} />
+                        </div>
+                      </div>
+                    ) : (
+                      <button onClick={addClipsToFiles} style={{ width: "100%", padding: "12px", background: t.accent, border: "none", borderRadius: "8px", color: t.accentText, fontSize: "13px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit", minHeight: "44px" }}>
+                        {videoClips.length === 1 ? '✅ ADD VIDEO TO REPORT' : `✅ ADD ALL ${videoClips.length} CLIPS TO REPORT`}
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ── AUDIO RECORDER ── */}
+            {showAudioRecorder && !showVideoRecorder && !showCamera && !cropMode && (
+              <div style={{ marginBottom: "16px", padding: "16px", background: t.bgPage, border: `1px solid ${t.borderCard}`, borderRadius: "10px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+                  <p style={{ color: "#a78bfa", fontSize: "12px", fontWeight: "700", margin: 0, letterSpacing: "0.5px" }}>🎙️ AUDIO RECORDER</p>
+                  <button onClick={() => { stopAudioRecording(); setShowAudioRecorder(false) }}
+                    style={{ padding: "5px 10px", background: t.dangerBg, border: `1px solid ${t.dangerBorder}`, borderRadius: "6px", color: t.danger, fontSize: "11px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit" }}>CLOSE</button>
+                </div>
+                <div style={{ height: "60px", background: t.bgCard, borderRadius: "8px", marginBottom: "12px", display: "flex", alignItems: "center", justifyContent: "center", gap: "3px", overflow: "hidden", border: `1px solid ${t.borderCard}` }}>
+                  {audioRecording ? (
+                    Array.from({ length: 20 }).map((_, i) => (
+                      <div key={i} style={{ width: "4px", background: "#a78bfa", borderRadius: "2px", animation: `wave${i % 4} ${0.4 + (i % 5) * 0.1}s ease-in-out infinite alternate`, height: `${20 + Math.random() * 30}px` }} />
+                    ))
+                  ) : (
+                    <p style={{ color: t.textDisabled, fontSize: "12px", margin: 0 }}>Press START to record audio</p>
+                  )}
+                  <style>{`@keyframes wave0{from{height:10px}to{height:40px}}@keyframes wave1{from{height:15px}to{height:50px}}@keyframes wave2{from{height:8px}to{height:35px}}@keyframes wave3{from{height:20px}to{height:45px}}`}</style>
+                </div>
+                {audioRecording && <p style={{ color: "#a78bfa", fontSize: "14px", fontWeight: "700", textAlign: "center", margin: "0 0 10px" }}>🔴 {formatSeconds(audioRecordingTime)}</p>}
+                <div style={{ display: "flex", gap: "8px", marginBottom: "12px" }}>
+                  {!audioRecording ? (
+                    <button onClick={startAudioRecording} style={{ flex: 1, padding: "12px", background: "#a78bfa", border: "none", borderRadius: "8px", color: "#fff", fontSize: "13px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit", minHeight: "44px" }}>🎙️ START RECORDING</button>
+                  ) : (
+                    <button onClick={stopAudioRecording} style={{ flex: 1, padding: "12px", background: t.bgCard, border: "2px solid #a78bfa", borderRadius: "8px", color: "#a78bfa", fontSize: "13px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit", minHeight: "44px" }}>⏹ STOP RECORDING</button>
+                  )}
+                </div>
+                {audioBlobs.length > 0 && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                    <p style={{ color: t.textMuted, fontSize: "11px", fontWeight: "700", letterSpacing: "0.5px", margin: 0 }}>RECORDED AUDIO</p>
+                    {audioBlobs.map((audio, idx) => (
+                      <div key={idx} style={{ padding: "10px 12px", background: t.bgCard, borderRadius: "8px", border: "1px solid rgba(167,139,250,0.3)", display: "flex", alignItems: "center", gap: "10px" }}>
+                        <span style={{ fontSize: "20px" }}>🎵</span>
+                        <div style={{ flex: 1 }}>
+                          <p style={{ color: t.textPrimary, fontSize: "12px", fontWeight: "700", margin: 0 }}>Audio {idx + 1}</p>
+                          <audio src={audio.url} controls style={{ width: "100%", height: "32px", marginTop: "4px" }} />
+                        </div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                          <button onClick={() => addAudioToFiles(idx)} style={{ padding: "5px 10px", background: t.successBg, border: `1px solid ${t.successBorder}`, borderRadius: "5px", color: t.success, fontSize: "10px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit" }}>+ ADD</button>
+                          <button onClick={() => setAudioBlobs(prev => prev.filter((_, i) => i !== idx))} style={{ padding: "5px 8px", background: t.dangerBg, border: `1px solid ${t.dangerBorder}`, borderRadius: "5px", color: t.danger, fontSize: "10px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit" }}>✕</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ── PHOTO CAMERA ── */}
+            {showCamera && !showVideoRecorder && !showAudioRecorder && (
               <div style={{ marginBottom: "16px" }}>
                 <div style={{ position: "relative", borderRadius: "10px", overflow: "hidden", background: "#000", marginBottom: "10px" }}>
-                  <video ref={videoRef} autoPlay playsInline muted style={{ width: "100%", display: "block", borderRadius: "10px" }} />
+                  <video data-photo-camera autoPlay playsInline muted ref={el => { if (el && cameraStream) el.srcObject = cameraStream }} style={{ width: "100%", display: "block", borderRadius: "10px" }} />
                 </div>
                 <div style={{ display: "flex", gap: "8px" }}>
-                  <button onClick={capturePhoto}
-                    style={{ flex: 1, padding: "12px", background: t.accent, border: "none", borderRadius: "8px", color: t.accentText, fontSize: "13px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit", minHeight: "48px" }}>
-                    📸 CAPTURE PHOTO
-                  </button>
-                  <button onClick={stopCamera}
-                    style={{ padding: "12px 16px", background: t.dangerBg, border: `1px solid ${t.dangerBorder}`, borderRadius: "8px", color: t.danger, fontSize: "13px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit", minHeight: "48px" }}>
-                    CANCEL
-                  </button>
+                  <button onClick={capturePhoto} style={{ flex: 1, padding: "12px", background: t.accent, border: "none", borderRadius: "8px", color: t.accentText, fontSize: "13px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit", minHeight: "48px" }}>📸 CAPTURE PHOTO</button>
+                  <button onClick={stopCamera} style={{ padding: "12px 16px", background: t.dangerBg, border: `1px solid ${t.dangerBorder}`, borderRadius: "8px", color: t.danger, fontSize: "13px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit", minHeight: "48px" }}>CANCEL</button>
                 </div>
                 <canvas ref={canvasRef} style={{ display: "none" }} />
               </div>
             )}
 
             {/* ── CROP VIEW ── */}
-            {cropMode && capturedImage && (
+            {cropMode && capturedImage && !showVideoRecorder && !showAudioRecorder && (
               <div style={{ marginBottom: "16px" }}>
-                <p style={{ color: t.textMuted, fontSize: "12px", margin: "0 0 8px", fontWeight: "600" }}>
-                  ✂️ DRAG TO SELECT CROP AREA — or use full image
-                </p>
-                <div
-                  style={{ position: "relative", userSelect: "none", cursor: "crosshair", borderRadius: "8px", overflow: "hidden", border: `2px solid ${t.accentBorder}` }}
-                  onMouseDown={onCropMouseDown}
-                  onMouseMove={onCropMouseMove}
-                  onMouseUp={onCropMouseUp}
-                  onMouseLeave={onCropMouseUp}
-                  onTouchStart={e => {
-                    const touch = e.touches[0]
-                    const rect = e.currentTarget.getBoundingClientRect()
-                    setCropStart({ x: (touch.clientX - rect.left) / rect.width, y: (touch.clientY - rect.top) / rect.height })
-                    setIsCropping(true); setCropRect(null)
-                  }}
-                  onTouchMove={e => {
-                    if (!isCropping || !cropStart) return
-                    const touch = e.touches[0]
-                    const rect = e.currentTarget.getBoundingClientRect()
-                    const pos = { x: Math.max(0, Math.min(1, (touch.clientX - rect.left) / rect.width)), y: Math.max(0, Math.min(1, (touch.clientY - rect.top) / rect.height)) }
-                    setCropRect({ x: Math.min(cropStart.x, pos.x), y: Math.min(cropStart.y, pos.y), w: Math.abs(pos.x - cropStart.x), h: Math.abs(pos.y - cropStart.y) })
-                  }}
+                <p style={{ color: t.textMuted, fontSize: "12px", margin: "0 0 8px", fontWeight: "600" }}>✂️ DRAG TO SELECT CROP AREA — or use full image</p>
+                <div style={{ position: "relative", userSelect: "none", cursor: "crosshair", borderRadius: "8px", overflow: "hidden", border: `2px solid ${t.accentBorder}` }}
+                  onMouseDown={onCropMouseDown} onMouseMove={onCropMouseMove} onMouseUp={onCropMouseUp} onMouseLeave={onCropMouseUp}
+                  onTouchStart={e => { const touch = e.touches[0]; const rect = e.currentTarget.getBoundingClientRect(); setCropStart({ x: (touch.clientX - rect.left) / rect.width, y: (touch.clientY - rect.top) / rect.height }); setIsCropping(true); setCropRect(null) }}
+                  onTouchMove={e => { if (!isCropping || !cropStart) return; const touch = e.touches[0]; const rect = e.currentTarget.getBoundingClientRect(); const pos = { x: Math.max(0, Math.min(1, (touch.clientX - rect.left) / rect.width)), y: Math.max(0, Math.min(1, (touch.clientY - rect.top) / rect.height)) }; setCropRect({ x: Math.min(cropStart.x, pos.x), y: Math.min(cropStart.y, pos.y), w: Math.abs(pos.x - cropStart.x), h: Math.abs(pos.y - cropStart.y) }) }}
                   onTouchEnd={() => setIsCropping(false)}>
                   <img src={capturedImage} alt="Crop" style={{ width: "100%", display: "block", pointerEvents: "none" }} />
-                  {cropRect && (
-                    <div style={{ position: "absolute", left: `${cropRect.x * 100}%`, top: `${cropRect.y * 100}%`, width: `${cropRect.w * 100}%`, height: `${cropRect.h * 100}%`, border: `2px solid ${t.accent}`, background: `${t.accent}25`, pointerEvents: "none" }} />
-                  )}
+                  {cropRect && <div style={{ position: "absolute", left: `${cropRect.x * 100}%`, top: `${cropRect.y * 100}%`, width: `${cropRect.w * 100}%`, height: `${cropRect.h * 100}%`, border: `2px solid ${t.accent}`, background: `${t.accent}25`, pointerEvents: "none" }} />}
                 </div>
                 <canvas ref={cropCanvasRef} style={{ display: "none" }} />
                 <div style={{ display: "flex", gap: "8px", marginTop: "10px" }}>
-                  <button onClick={applyCrop} disabled={!cropRect}
-                    style={{ flex: 1, padding: "11px", background: cropRect ? t.accent : t.bgInput, border: "none", borderRadius: "8px", color: cropRect ? t.accentText : t.textDisabled, fontSize: "12px", fontWeight: "700", cursor: cropRect ? "pointer" : "not-allowed", fontFamily: "inherit", minHeight: "44px" }}>
-                    ✂️ APPLY CROP
-                  </button>
-                  <button onClick={skipCrop}
-                    style={{ flex: 1, padding: "11px", background: t.bgPage, border: `1px solid ${t.borderCard}`, borderRadius: "8px", color: t.textMuted, fontSize: "12px", fontWeight: "600", cursor: "pointer", fontFamily: "inherit", minHeight: "44px" }}>
-                    USE FULL IMAGE
-                  </button>
-                  <button onClick={() => { setCapturedImage(null); setCropMode(false); setCropRect(null); setCropImageIndex(null) }}
-                    style={{ padding: "11px 14px", background: t.dangerBg, border: `1px solid ${t.dangerBorder}`, borderRadius: "8px", color: t.danger, fontSize: "12px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit", minHeight: "44px" }}>
-                    DISCARD
-                  </button>
+                  <button onClick={applyCrop} disabled={!cropRect} style={{ flex: 1, padding: "11px", background: cropRect ? t.accent : t.bgInput, border: "none", borderRadius: "8px", color: cropRect ? t.accentText : t.textDisabled, fontSize: "12px", fontWeight: "700", cursor: cropRect ? "pointer" : "not-allowed", fontFamily: "inherit", minHeight: "44px" }}>✂️ APPLY CROP</button>
+                  <button onClick={skipCrop} style={{ flex: 1, padding: "11px", background: t.bgPage, border: `1px solid ${t.borderCard}`, borderRadius: "8px", color: t.textMuted, fontSize: "12px", fontWeight: "600", cursor: "pointer", fontFamily: "inherit", minHeight: "44px" }}>USE FULL IMAGE</button>
+                  <button onClick={() => { setCapturedImage(null); setCropMode(false); setCropRect(null); setCropImageIndex(null) }} style={{ padding: "11px 14px", background: t.dangerBg, border: `1px solid ${t.dangerBorder}`, borderRadius: "8px", color: t.danger, fontSize: "12px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit", minHeight: "44px" }}>DISCARD</button>
                 </div>
               </div>
             )}
 
             {/* ── MAIN UPLOAD UI ── */}
-            {!showCamera && !cropMode && (
+            {!showCamera && !cropMode && !showVideoRecorder && !showAudioRecorder && (
               <>
-                {/* Source buttons */}
-                <div style={{ display: "flex", gap: "8px", marginBottom: "14px", flexWrap: "wrap" }}>
-                  <button onClick={() => fileInputRef.current?.click()}
-                    style={{ flex: 1, padding: "10px", background: t.accentBg, border: `1px solid ${t.accentBorder}`, borderRadius: "8px", color: t.accent, fontSize: "12px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit", minHeight: "44px", minWidth: "80px" }}>
-                    📁 BROWSE
-                  </button>
-                  <button onClick={startCamera}
-                    style={{ flex: 1, padding: "10px", background: t.warningBg, border: `1px solid ${t.warningBorder}`, borderRadius: "8px", color: t.warning, fontSize: "12px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit", minHeight: "44px", minWidth: "80px" }}>
-                    📷 CAMERA
-                  </button>
+                <div style={{ display: "flex", gap: "6px", marginBottom: "14px", flexWrap: "wrap" }}>
+                  <button onClick={() => fileInputRef.current?.click()} style={{ flex: 1, padding: "10px", background: t.accentBg, border: `1px solid ${t.accentBorder}`, borderRadius: "8px", color: t.accent, fontSize: "11px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit", minHeight: "44px", minWidth: "60px" }}>📁 BROWSE</button>
+                  <button onClick={startCamera} style={{ flex: 1, padding: "10px", background: t.warningBg, border: `1px solid ${t.warningBorder}`, borderRadius: "8px", color: t.warning, fontSize: "11px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit", minHeight: "44px", minWidth: "60px" }}>📷 PHOTO</button>
+                  <button onClick={() => { setShowVideoRecorder(true); setTimeout(() => startVideoRecording(), 300) }} style={{ flex: 1, padding: "10px", background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.4)", borderRadius: "8px", color: "#ef4444", fontSize: "11px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit", minHeight: "44px", minWidth: "60px" }}>🎥 VIDEO</button>
+                  <button onClick={() => setShowAudioRecorder(true)} style={{ flex: 1, padding: "10px", background: "rgba(167,139,250,0.1)", border: "1px solid rgba(167,139,250,0.4)", borderRadius: "8px", color: "#a78bfa", fontSize: "11px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit", minHeight: "44px", minWidth: "60px" }}>🎙️ AUDIO</button>
                   {isMobile && (
-                    <button onClick={() => {
-                      const input = document.createElement("input")
-                      input.type = "file"; input.accept = "image/*"; input.multiple = true
-                      input.onchange = (e: any) => {
-                        const files = Array.from(e.target.files || []) as File[]
-                        if (files.length) setSelectedFiles(prev => [...prev, ...files])
-                      }
-                      input.click()
-                    }}
-                      style={{ flex: 1, padding: "10px", background: t.successBg, border: `1px solid ${t.successBorder}`, borderRadius: "8px", color: t.success, fontSize: "12px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit", minHeight: "44px", minWidth: "80px" }}>
-                      🖼️ GALLERY
-                    </button>
+                    <button onClick={() => { const input = document.createElement("input"); input.type = "file"; input.accept = "image/*"; input.multiple = true; input.onchange = (e: any) => { const files = Array.from(e.target.files || []) as File[]; if (files.length) setSelectedFiles(prev => [...prev, ...files]) }; input.click() }}
+                      style={{ flex: 1, padding: "10px", background: t.successBg, border: `1px solid ${t.successBorder}`, borderRadius: "8px", color: t.success, fontSize: "11px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit", minHeight: "44px", minWidth: "60px" }}>🖼️ GALLERY</button>
                   )}
                 </div>
 
-                {/* Hidden file input — all types, multiple */}
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="*/*"
-                  multiple
-                  style={{ display: "none" }}
-                  onChange={e => {
-                    const files = Array.from(e.target.files || []) as File[]
-                    if (files.length) setSelectedFiles(prev => [...prev, ...files])
-                    if (fileInputRef.current) fileInputRef.current.value = ""
-                  }}
-                />
+                <input ref={fileInputRef} type="file" accept="*/*" multiple style={{ display: "none" }}
+                  onChange={e => { const files = Array.from(e.target.files || []) as File[]; if (files.length) setSelectedFiles(prev => [...prev, ...files]); if (fileInputRef.current) fileInputRef.current.value = "" }} />
 
-                {/* Drop zone */}
-                <div
-                  ref={dropZoneRef}
-                  onDragOver={handleDragOver}
-                  onDragLeave={handleDragLeave}
-                  onDrop={handleDrop}
-                  onClick={() => fileInputRef.current?.click()}
+                <div ref={dropZoneRef} onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop} onClick={() => fileInputRef.current?.click()}
                   style={{ border: `2px dashed ${dragOver ? t.accent : t.borderCard}`, borderRadius: "10px", padding: isMobile ? "20px 14px" : "24px 20px", textAlign: "center", cursor: "pointer", marginBottom: selectedFiles.length ? "16px" : "20px", background: dragOver ? t.accentBg : t.bgInput, transition: "all 0.15s" }}>
                   <div style={{ fontSize: "32px", marginBottom: "8px" }}>📎</div>
-                  <p style={{ color: t.textSecondary, fontSize: "14px", fontWeight: "600", margin: "0 0 4px" }}>
-                    {isMobile ? "Tap to add files" : "Drop files here or click to browse"}
-                  </p>
+                  <p style={{ color: t.textSecondary, fontSize: "14px", fontWeight: "600", margin: "0 0 4px" }}>{isMobile ? "Tap to add files" : "Drop files here or click to browse"}</p>
                   <p style={{ color: t.textMuted, fontSize: "11px", margin: 0 }}>All types accepted · Multiple files allowed</p>
                 </div>
 
-                {/* Selected files list */}
                 {selectedFiles.length > 0 && (
                   <div style={{ marginBottom: "16px" }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
-                      <p style={{ color: t.textMuted, fontSize: "11px", fontWeight: "700", letterSpacing: "0.5px", margin: 0 }}>
-                        {selectedFiles.length} FILE{selectedFiles.length > 1 ? "S" : ""} SELECTED
-                      </p>
-                      <button onClick={() => setSelectedFiles([])}
-                        style={{ padding: "3px 10px", background: t.dangerBg, border: `1px solid ${t.dangerBorder}`, borderRadius: "4px", color: t.danger, fontSize: "10px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit" }}>
-                        CLEAR ALL
-                      </button>
+                      <p style={{ color: t.textMuted, fontSize: "11px", fontWeight: "700", letterSpacing: "0.5px", margin: 0 }}>{selectedFiles.length} FILE{selectedFiles.length > 1 ? "S" : ""} SELECTED</p>
+                      <button onClick={() => setSelectedFiles([])} style={{ padding: "3px 10px", background: t.dangerBg, border: `1px solid ${t.dangerBorder}`, borderRadius: "4px", color: t.danger, fontSize: "10px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit" }}>CLEAR ALL</button>
                     </div>
                     <div style={{ display: "flex", flexDirection: "column", gap: "6px", maxHeight: "220px", overflowY: "auto" }}>
                       {selectedFiles.map((file, index) => (
@@ -753,43 +1033,74 @@ export default function ReporterQueue() {
                             <p style={{ color: t.textPrimary, fontSize: "12px", fontWeight: "600", margin: "0 0 2px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{file.name}</p>
                             <p style={{ color: t.textMuted, fontSize: "10px", margin: 0 }}>{(file.size / 1024).toFixed(1)} KB</p>
                           </div>
-                          {/* Crop button — for images on both desktop and mobile */}
                           {file.type.startsWith("image/") && (
-                            <button onClick={() => recropFile(index)}
-                              style={{ padding: "5px 10px", background: t.accentBg, border: `1px solid ${t.accentBorder}`, borderRadius: "5px", color: t.accent, fontSize: "10px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap", flexShrink: 0 }}>
-                              ✂️ CROP
-                            </button>
+                            <button onClick={() => recropFile(index)} style={{ padding: "5px 10px", background: t.accentBg, border: `1px solid ${t.accentBorder}`, borderRadius: "5px", color: t.accent, fontSize: "10px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap", flexShrink: 0 }}>✂️ CROP</button>
                           )}
-                          <button onClick={() => setSelectedFiles(prev => prev.filter((_, i) => i !== index))}
-                            style={{ padding: "5px 8px", background: t.dangerBg, border: `1px solid ${t.dangerBorder}`, borderRadius: "5px", color: t.danger, fontSize: "12px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit", flexShrink: 0, lineHeight: 1 }}>
-                            ✕
-                          </button>
+                          <button onClick={() => setSelectedFiles(prev => prev.filter((_, i) => i !== index))} style={{ padding: "5px 8px", background: t.dangerBg, border: `1px solid ${t.dangerBorder}`, borderRadius: "5px", color: t.danger, fontSize: "12px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit", flexShrink: 0, lineHeight: 1 }}>✕</button>
                         </div>
                       ))}
                     </div>
-                    <button onClick={() => fileInputRef.current?.click()}
-                      style={{ width: "100%", marginTop: "8px", padding: "8px", background: "transparent", border: `1px dashed ${t.borderCard}`, borderRadius: "6px", color: t.textMuted, fontSize: "12px", fontWeight: "600", cursor: "pointer", fontFamily: "inherit" }}>
-                      + ADD MORE FILES
-                    </button>
+                    <button onClick={() => fileInputRef.current?.click()} style={{ width: "100%", marginTop: "8px", padding: "8px", background: "transparent", border: `1px dashed ${t.borderCard}`, borderRadius: "6px", color: t.textMuted, fontSize: "12px", fontWeight: "600", cursor: "pointer", fontFamily: "inherit" }}>+ ADD MORE FILES</button>
+                  </div>
+                )}
+
+                {/* ── ATTACH REPORTER NOTES ── */}
+                {loadingNotes && (
+                  <p style={{ fontSize: "12px", color: t.textMuted, margin: "0 0 16px" }}>Loading notes...</p>
+                )}
+                {!loadingNotes && storyNotes.length > 0 && (
+                  <div style={{ marginBottom: "16px", padding: "14px 16px", background: t.bgPage, border: `1px solid ${t.borderCard}`, borderRadius: "10px" }}>
+                    <p style={{ margin: "0 0 10px", fontSize: "11px", fontWeight: "700", color: t.textMuted, letterSpacing: "0.5px" }}>
+                      📝 ATTACH REPORTER NOTES ({storyNotes.length} available)
+                    </p>
+                    <div style={{ display: "flex", flexDirection: "column", gap: "8px", maxHeight: "200px", overflowY: "auto" }}>
+                      {storyNotes.map(note => {
+                        const isSelected = selectedNoteIds.includes(note.id)
+                        const authorName = notesReporters[note.reporter_id] || 'Reporter'
+                        const isOwn = note.reporter_id === reporterId
+                        return (
+                          <div key={note.id} onClick={() => setSelectedNoteIds(prev =>
+                            isSelected ? prev.filter(id => id !== note.id) : [...prev, note.id]
+                          )}
+                            style={{ padding: "10px 12px", borderRadius: "8px", cursor: "pointer", border: `1px solid ${isSelected ? t.accentBorder : t.borderCard}`, background: isSelected ? t.accentBg : t.bgCard, transition: "all 0.15s" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
+                              <div style={{ width: "16px", height: "16px", borderRadius: "3px", border: `2px solid ${isSelected ? t.accent : t.borderCard}`, background: isSelected ? t.accent : 'transparent', display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                                {isSelected && <span style={{ color: t.accentText, fontSize: "10px", fontWeight: "900" }}>✓</span>}
+                              </div>
+                              <span style={{ fontSize: "11px", fontWeight: "700", color: isSelected ? t.accent : t.textSecondary }}>
+                                {authorName}{isOwn ? ' (you)' : ''}
+                              </span>
+                              <span style={{ fontSize: "10px", color: t.textMuted }}>
+                                {new Date(note.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                              </span>
+                            </div>
+                            <p style={{ margin: 0, fontSize: "12px", color: t.textPrimary, lineHeight: 1.5, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" as const }}>
+                              {note.note_text}
+                            </p>
+                          </div>
+                        )
+                      })}
+                    </div>
+                    {selectedNoteIds.length > 0 && (
+                      <p style={{ margin: "8px 0 0", fontSize: "11px", color: t.accent, fontWeight: "600" }}>
+                        ✓ {selectedNoteIds.length} note{selectedNoteIds.length > 1 ? 's' : ''} will be attached to your report
+                      </p>
+                    )}
                   </div>
                 )}
 
                 {/* File type chips */}
                 <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginBottom: "16px" }}>
-                  {["📘 Word", "📄 PDF", "🖼️ Image", "📊 Excel", "🎬 Video", "📎 Any"].map(label => (
+                  {["📘 Word", "📄 PDF", "🖼️ Image", "📊 Excel", "🎬 Video", "🎵 Audio", "📎 Any"].map(label => (
                     <span key={label} style={{ padding: "3px 10px", borderRadius: "20px", fontSize: "10px", fontWeight: "600", background: t.bgPage, border: `1px solid ${t.borderCard}`, color: t.textMuted }}>{label}</span>
                   ))}
                 </div>
 
-                {/* Submit buttons */}
                 <div style={{ display: "flex", gap: "8px" }}>
-                  <button onClick={closeFileModal}
-                    style={{ flex: 1, padding: "12px", background: "transparent", border: `1px solid ${t.borderCard}`, borderRadius: "8px", color: t.textMuted, fontSize: "13px", cursor: "pointer", fontFamily: "inherit", minHeight: "48px" }}>
-                    CANCEL
-                  </button>
+                  <button onClick={closeFileModal} style={{ flex: 1, padding: "12px", background: "transparent", border: `1px solid ${t.borderCard}`, borderRadius: "8px", color: t.textMuted, fontSize: "13px", cursor: "pointer", fontFamily: "inherit", minHeight: "48px" }}>CANCEL</button>
                   <button onClick={uploadAndFile} disabled={!selectedFiles.length || uploadingId === fileModal.id}
                     style={{ flex: 2, padding: "12px", background: selectedFiles.length ? "rgba(167,139,250,0.15)" : t.bgInput, border: `1px solid ${selectedFiles.length ? "rgba(167,139,250,0.4)" : t.borderCard}`, borderRadius: "8px", color: selectedFiles.length ? "#a78bfa" : t.textDisabled, fontSize: "13px", fontWeight: "700", cursor: selectedFiles.length ? "pointer" : "not-allowed", fontFamily: "inherit", opacity: uploadingId === fileModal.id ? 0.6 : 1, minHeight: "48px" }}>
-                    {uploadingId === fileModal.id ? "UPLOADING..." : `SUBMIT ${selectedFiles.length > 1 ? selectedFiles.length + " FILES" : "REPORT"}`}
+                    {uploadingId === fileModal.id ? "UPLOADING..." : `SUBMIT ${selectedFiles.length > 1 ? selectedFiles.length + " FILES" : "REPORT"}${selectedNoteIds.length > 0 ? ` + ${selectedNoteIds.length} NOTE${selectedNoteIds.length > 1 ? 'S' : ''}` : ''}`}
                   </button>
                 </div>
               </>
@@ -798,7 +1109,7 @@ export default function ReporterQueue() {
         </div>
       )}
 
-      {/* Feedback Modal */}
+      {/* ── FEEDBACK MODAL ── */}
       {feedbackModal && (
         <div role="dialog" aria-modal="true"
           style={{ position: "fixed", inset: 0, background: t.overlayBg, display: "flex", alignItems: isMobile ? "flex-end" : "center", justifyContent: "center", zIndex: 1000 }}

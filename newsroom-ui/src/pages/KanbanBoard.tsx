@@ -490,6 +490,44 @@ export default function KanbanBoard() {
               })()}
             </div>
 
+              {/* ── REPORTER NOTES ATTACHED ── */}
+            {viewFile.filed_notes && (
+              <div style={{ padding: isMobile ? "16px" : "20px 24px", borderBottom: `1px solid ${t.borderCard}` }}>
+                <p style={{ color: t.textMuted, fontSize: "11px", fontWeight: "700", letterSpacing: "0.5px", margin: "0 0 12px" }}>
+                  📝 REPORTER NOTES ATTACHED
+                </p>
+                <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                  {(viewFile.filed_notes as string).split('\n\n').filter((n: string) => n.trim()).map((note: string, idx: number) => {
+                    const bracketEnd = note.indexOf(']')
+                    const hasAuthor = note.startsWith('[') && bracketEnd !== -1
+                    const author: string | null = hasAuthor ? note.slice(1, bracketEnd) : null
+                    const rest: string = hasAuthor ? note.slice(bracketEnd + 2) : note
+                    const colonIdx = rest.indexOf(':')
+                    const date: string | null = (hasAuthor && colonIdx !== -1) ? rest.slice(0, colonIdx).trim() : null
+                    const text: string = (hasAuthor && colonIdx !== -1) ? rest.slice(colonIdx + 1).trim() : rest
+                    return (
+                      <div key={idx} style={{ padding: "12px 14px", borderRadius: "8px", background: t.accentBg, border: `1px solid ${t.accentBorder}` }}>
+                        {(author || date) && (
+                          <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "6px" }}>
+                            {author && (
+                              <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                <div style={{ width: "20px", height: "20px", borderRadius: "50%", background: t.accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "9px", fontWeight: "700", color: t.accentText, flexShrink: 0 }}>
+                                  {author.charAt(0)}
+                                </div>
+                                <span style={{ fontSize: "11px", fontWeight: "700", color: t.accent }}>{author}</span>
+                              </div>
+                            )}
+                            {date && <span style={{ fontSize: "10px", color: t.textMuted }}>{date}</span>}
+                          </div>
+                        )}
+                        <p style={{ margin: 0, fontSize: "13px", color: t.textPrimary, lineHeight: 1.6, whiteSpace: "pre-wrap" as const }}>{text}</p>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+            
             {/* Previous reassign reason */}
             {viewFile.reassign_reason && (
               <div style={{ padding: "14px 24px", background: t.warningBg, borderBottom: `1px solid ${t.warningBorder}` }}>
