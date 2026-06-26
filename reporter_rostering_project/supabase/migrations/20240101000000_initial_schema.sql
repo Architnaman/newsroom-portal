@@ -915,6 +915,72 @@ CREATE POLICY "attachments_select"
 
 CREATE POLICY "attachments_insert"
   ON chat_attachments FOR INSERT TO authenticated WITH CHECK (true);
+-- ================================================
+-- REPORTER NOTES TABLE
+-- ================================================
+CREATE TABLE IF NOT EXISTS reporter_notes (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  story_id uuid REFERENCES stories(id) ON DELETE CASCADE,
+  reporter_id uuid REFERENCES reporters(id) ON DELETE CASCADE,
+  note_text text NOT NULL,
+  created_at timestamptz DEFAULT now(),
+  updated_at timestamptz DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_reporter_notes_story ON reporter_notes(story_id);
+CREATE INDEX IF NOT EXISTS idx_reporter_notes_reporter ON reporter_notes(reporter_id);
+
+ALTER TABLE reporter_notes ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "notes_select_authenticated"
+  ON reporter_notes FOR SELECT TO authenticated USING (true);
+
+CREATE POLICY "notes_insert_authenticated"
+  ON reporter_notes FOR INSERT TO authenticated
+  WITH CHECK (reporter_id = (SELECT reporter_id FROM profiles WHERE id = auth.uid()));
+
+CREATE POLICY "notes_update_own"
+  ON reporter_notes FOR UPDATE TO authenticated
+  USING (reporter_id = (SELECT reporter_id FROM profiles WHERE id = auth.uid()))
+  WITH CHECK (reporter_id = (SELECT reporter_id FROM profiles WHERE id = auth.uid()));
+
+CREATE POLICY "notes_delete_own"
+  ON reporter_notes FOR DELETE TO authenticated
+  USING (reporter_id = (SELECT reporter_id FROM profiles WHERE id = auth.uid()));
+
+-- ================================================
+-- COLUMNS ADDED DURING DEVELOPMENT
+-- ================================================
+
+-- filed_notes: stores reporter notes attached when filing a report
+ALTER TABLE stories ADD COLUMN IF NOT EXISTS filed_notes text;
+
+-- phone and skill columns added to reporters
+ALTER TABLE reporters ADD COLUMN IF NOT EXISTS phone text;
+ALTER TABLE reporters ADD COLUMN IF NOT EXISTS skill_set text[] DEFAULT '{}';
+ALTER TABLE reporters ADD COLUMN IF NOT EXISTS experience_years integer DEFAULT 0;
+
+-- leave_filing_requests RLS (table exists but RLS was never added)
+ALTER TABLE leave_filing_requests ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "leave_filing_select"
+  ON leave_filing_requests FOR SELECT TO authenticated
+  USING (
+    (SELECT role FROM profiles WHERE id = auth.uid()) IN ('editor', 'admin')
+    OR reporter_id = (SELECT reporter_id FROM profiles WHERE id = auth.uid())
+  );
+
+CREATE POLICY "leave_filing_insert"
+  ON leave_filing_requests FOR INSERT TO authenticated
+  WITH CHECK (reporter_id = (SELECT reporter_id FROM profiles WHERE id = auth.uid()));
+
+CREATE POLICY "leave_filing_update_editor"
+  ON leave_filing_requests FOR UPDATE TO authenticated
+  USING ((SELECT role FROM profiles WHERE id = auth.uid()) IN ('editor', 'admin'));
+
+CREATE POLICY "leave_filing_delete_editor"
+  ON leave_filing_requests FOR DELETE TO authenticated
+  USING ((SELECT role FROM profiles WHERE id = auth.uid()) IN ('editor', 'admin'));
 -- ================================================================
 -- VERIFICATION QUERIES
 -- Run these after applying the migration to confirm everything
