@@ -6,6 +6,16 @@ import { useResponsive } from "../hooks/useResponsive"
 import { sendNotification } from "../lib/notifications"
 
 const GROQ_API_KEY = import.meta.env.VITE_GROQ_API_KEY
+const OPENAI_API_KEY = import.meta.env.VITE_OPENAI_API_KEY
+const AI_PROVIDER = import.meta.env.VITE_AI_PROVIDER || 'groq'
+
+const AI_API_URL = AI_PROVIDER === 'openai'
+  ? 'https://api.openai.com/v1/chat/completions'
+  : 'https://api.groq.com/openai/v1/chat/completions'
+
+const AI_API_KEY = AI_PROVIDER === 'openai' ? OPENAI_API_KEY : GROQ_API_KEY
+
+const AI_MODEL = AI_PROVIDER === 'openai' ? 'gpt-4.1-mini' : 'llama-3.3-70b-versatile'
 
 export default function Chatbot() {
   const { role, reporterId } = useAuth()
@@ -161,7 +171,6 @@ export default function Chatbot() {
             story_id: action.story_id,
           })
         }
-
         return "Story assigned successfully!"
       }
 
@@ -206,7 +215,6 @@ export default function Chatbot() {
             story_id: action.story_id,
           })
         }
-
         return `Story assigned with override${holidayNote}! Reporter will be notified to accept or reject with a reason.`
       }
 
@@ -430,11 +438,11 @@ CRITICAL JSON RULES:
       }))
       conversationHistory.push({ role: "user", content: userMsg })
 
-      const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      const response = await fetch(AI_API_URL, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + GROQ_API_KEY },
+        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + AI_API_KEY },
         body: JSON.stringify({
-          model: "llama-3.3-70b-versatile",
+          model: AI_MODEL,
           messages: [{ role: "system", content: systemPrompt }, ...conversationHistory],
           temperature: 0.1, max_tokens: 1000
         })
@@ -443,7 +451,7 @@ CRITICAL JSON RULES:
       const data = await response.json()
 
       if (!response.ok) {
-        console.error("Groq API error:", data)
+        console.error("AI API error:", data)
         setMessages(prev => [...prev, { role: "assistant", text: "API Error: " + (data.error?.message || "Unknown error") }])
         setLoading(false)
         return
@@ -474,8 +482,6 @@ CRITICAL JSON RULES:
     setLoading(false)
   }
 
-  // ── Responsive dimensions — ONLY changes on mobile/tablet ──
-  // Desktop: exactly as original (400px wide, 540px tall, bottom-right fixed)
   const chatWidth = isMobile ? "calc(100vw - 20px)" : isTablet ? "380px" : "400px"
   const chatHeight = isMobile ? "70vh" : isTablet ? "500px" : "540px"
   const chatBottom = isMobile ? "10px" : "24px"
@@ -488,12 +494,11 @@ CRITICAL JSON RULES:
       {open && (
         <div style={{ width: chatWidth, height: chatHeight, background: t.bgCard, border: `1px solid ${t.accentBorder}`, borderRadius: isMobile ? "14px" : "14px", display: "flex", flexDirection: "column", marginBottom: "12px", boxShadow: t.shadow, overflow: "hidden" }}>
 
-          {/* Header — identical to desktop, just slightly smaller on mobile */}
           <div style={{ padding: isMobile ? "12px 14px" : "16px 20px", borderBottom: `1px solid ${t.borderCard}`, display: "flex", justifyContent: "space-between", alignItems: "center", background: t.accentBg, flexShrink: 0 }}>
             <div>
               <div style={{ color: t.accent, fontSize: isMobile ? "13px" : "14px", fontWeight: "700", letterSpacing: "1px" }}>NEWSROOM AI</div>
               <div style={{ color: t.textMuted, fontSize: "11px", fontWeight: "500", marginTop: "2px" }}>
-                {role === "editor" ? "Editor Assistant" : "Reporter Assistant"}
+                {role === "editor" ? "Editor Assistant" : "Reporter Assistant"} · {AI_PROVIDER === 'openai' ? 'GPT-4.1 Mini' : 'LLaMA 3.3'}
               </div>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
@@ -508,7 +513,6 @@ CRITICAL JSON RULES:
             </div>
           </div>
 
-          {/* Messages */}
           <div style={{ flex: 1, overflowY: "auto", padding: isMobile ? "12px" : "16px", display: "flex", flexDirection: "column", gap: "12px", background: t.bgPage }}>
             {messages.map((msg, i) => (
               <div key={i} style={{ display: "flex", justifyContent: msg.role === "user" ? "flex-end" : "flex-start" }}>
@@ -527,21 +531,16 @@ CRITICAL JSON RULES:
               </div>
             )}
 
-            {/* Story Confirmation Card — identical to desktop, just tighter on mobile */}
             {pendingStory && editingStory && (
               <div style={{ background: t.bgCard, border: `2px solid ${t.accentBorder}`, borderRadius: "12px", padding: isMobile ? "12px" : "16px", marginTop: "4px" }}>
                 <div style={{ color: t.accent, fontSize: "12px", fontWeight: "700", letterSpacing: "1px", marginBottom: "12px" }}>
                   📋 CONFIRM STORY DETAILS
                 </div>
-
-                {/* Headline */}
                 <div style={{ marginBottom: "10px" }}>
                   <label style={{ color: t.textMuted, fontSize: "11px", fontWeight: "600", display: "block", marginBottom: "4px" }}>HEADLINE</label>
                   <input value={editingStory.headline} onChange={e => setEditingStory((prev: any) => ({ ...prev, headline: e.target.value }))}
                     style={{ width: "100%", padding: "8px 10px", background: t.bgInput, border: `1px solid ${t.borderInput}`, borderRadius: "6px", color: t.textPrimary, fontSize: isMobile ? "16px" : "12px", fontFamily: "inherit", outline: "none", boxSizing: "border-box" }} />
                 </div>
-
-                {/* Category & Urgency */}
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginBottom: "10px" }}>
                   <div>
                     <label style={{ color: t.textMuted, fontSize: "11px", fontWeight: "600", display: "block", marginBottom: "4px" }}>CATEGORY</label>
@@ -562,8 +561,6 @@ CRITICAL JSON RULES:
                     </select>
                   </div>
                 </div>
-
-                {/* Deadline & Complexity */}
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginBottom: "10px" }}>
                   <div>
                     <label style={{ color: t.textMuted, fontSize: "11px", fontWeight: "600", display: "block", marginBottom: "4px" }}>DEADLINE</label>
@@ -578,8 +575,6 @@ CRITICAL JSON RULES:
                     </select>
                   </div>
                 </div>
-
-                {/* Priority */}
                 <div style={{ marginBottom: "14px" }}>
                   <label style={{ color: t.textMuted, fontSize: "11px", fontWeight: "600", display: "block", marginBottom: "4px" }}>PRIORITY (1-5)</label>
                   <select value={editingStory.priority} onChange={e => setEditingStory((prev: any) => ({ ...prev, priority: e.target.value }))}
@@ -587,8 +582,6 @@ CRITICAL JSON RULES:
                     {[1, 2, 3, 4, 5].map(n => <option key={n} value={n}>{n}</option>)}
                   </select>
                 </div>
-
-                {/* Buttons */}
                 <div style={{ display: "flex", gap: "8px" }}>
                   <button onClick={confirmStory}
                     style={{ flex: 1, padding: "10px", background: t.success, border: "none", borderRadius: "8px", color: "#fff", fontSize: "12px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit", letterSpacing: "0.5px", minHeight: "44px" }}>
@@ -604,7 +597,6 @@ CRITICAL JSON RULES:
             <div ref={bottomRef} />
           </div>
 
-          {/* Input */}
           <div style={{ padding: isMobile ? "10px 12px" : "12px 16px", borderTop: `1px solid ${t.borderCard}`, display: "flex", gap: "8px", background: t.bgCard, flexShrink: 0 }}>
             <input value={input} onChange={e => setInput(e.target.value)}
               onKeyDown={e => e.key === "Enter" && !e.shiftKey && sendMessage()}
@@ -621,7 +613,6 @@ CRITICAL JSON RULES:
         </div>
       )}
 
-      {/* Toggle button — identical on all sizes */}
       <button onClick={() => setOpen(!open)}
         aria-label={open ? "Close AI assistant" : "Open AI assistant"}
         aria-expanded={open}
