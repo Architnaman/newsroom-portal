@@ -224,18 +224,18 @@ export default function Navbar() {
         }}>
 
         {/* Left: Brand + Nav */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '28px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '16px', minWidth: 0, flex: 1, overflow: 'hidden' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
             <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: t.accent }} />
             <span style={{ color: t.accent, fontSize: '13px', letterSpacing: '2px', fontWeight: '700' }}>NEWSROOM</span>
           </div>
-          <div style={{ display: 'flex', gap: '4px' }} role="menubar">
+          <div style={{ display: 'flex', gap: '2px', flexWrap: 'nowrap', overflow: 'hidden' }} role="menubar">
             {nav.map(item => {
               const isActive = location.pathname === item.path
               return (
                 <button key={item.path} role="menuitem" aria-current={isActive ? 'page' : undefined}
                   onClick={() => navigate(item.path)}
-                  style={{ padding: '7px 14px', borderRadius: '6px', border: isActive ? `1px solid ${t.accentBorder}` : '1px solid transparent', background: isActive ? t.accentBg : 'transparent', color: isActive ? t.accent : t.textMuted, fontSize: '12px', letterSpacing: '0.5px', fontWeight: isActive ? '600' : '400', cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.15s', outline: 'none' }}>
+                  style={{ padding: '6px 10px', borderRadius: '6px', border: isActive ? `1px solid ${t.accentBorder}` : '1px solid transparent', background: isActive ? t.accentBg : 'transparent', color: isActive ? t.accent : t.textMuted, fontSize: '11px', letterSpacing: '0.3px', fontWeight: isActive ? '600' : '400', cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.15s', outline: 'none', whiteSpace: 'nowrap', flexShrink: 0 }}>
                   {item.label}
                 </button>
               )
@@ -244,12 +244,12 @@ export default function Navbar() {
         </div>
 
         {/* Right: Controls */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
           <div role="group" aria-label="Font size controls"
             style={{ display: 'flex', gap: '2px', padding: '3px', background: t.bgInput, borderRadius: '8px', border: `1px solid ${t.borderCard}` }}>
             {fontSizes.map(s => (
               <button key={s} aria-label={`Font size ${s}`} aria-pressed={fontSize === s} onClick={() => setFontSize(s)}
-                style={{ padding: '5px 9px', borderRadius: '5px', border: 'none', background: fontSize === s ? t.accent : 'transparent', color: fontSize === s ? t.accentText : t.textMuted, fontSize: fontSizePx[s], fontWeight: fontSize === s ? '700' : '500', cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.15s', lineHeight: 1, minWidth: '28px', textAlign: 'center' as const }}>
+                style={{ padding: '4px 7px', borderRadius: '5px', border: 'none', background: fontSize === s ? t.accent : 'transparent', color: fontSize === s ? t.accentText : t.textMuted, fontSize: fontSizePx[s], fontWeight: fontSize === s ? '700' : '500', cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.15s', lineHeight: 1, minWidth: '24px', textAlign: 'center' as const }}>
                 {fontLabels[s]}
               </button>
             ))}
@@ -269,9 +269,9 @@ export default function Navbar() {
             style={{ padding: '7px 12px', borderRadius: '8px', border: `1px solid ${t.borderCard}`, background: guideLoading ? t.accentBg : t.bgInput, color: guideLoading ? t.accent : t.textSecondary, fontSize: '14px', cursor: guideLoading ? 'not-allowed' : 'pointer', fontFamily: 'inherit', transition: 'all 0.15s' }}>
             {guideLoading ? '⏳' : '❓'}
           </button>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '4px 12px', borderRadius: '6px', background: role === 'editor' ? t.accentBg : t.successBg, border: `1px solid ${role === 'editor' ? t.accentBorder : t.successBorder}` }}>
-            <div style={{ width: '26px', height: '26px', borderRadius: '50%', background: role === 'editor' ? t.accent : t.success, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', fontWeight: '700', color: t.accentText, flexShrink: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '4px 8px', borderRadius: '6px', background: role === 'editor' ? t.accentBg : t.successBg, border: `1px solid ${role === 'editor' ? t.accentBorder : t.successBorder}` }}>
+            <div style={{ width: '24px', height: '24px', borderRadius: '50%',
+           background: role === 'editor' ? t.accent : t.success, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', fontWeight: '700', color: t.accentText, flexShrink: 0 }}>
               {userName ? userName.charAt(0).toUpperCase() : '?'}
             </div>
             <div>
