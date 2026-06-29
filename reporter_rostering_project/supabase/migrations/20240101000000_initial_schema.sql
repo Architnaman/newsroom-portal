@@ -982,6 +982,12 @@ CREATE POLICY "leave_filing_delete_editor"
   ON leave_filing_requests FOR DELETE TO authenticated
   USING ((SELECT role FROM profiles WHERE id = auth.uid()) IN ('editor', 'admin'));
 -- ================================================================
+-- CHAT CHANNELS & MEMBERS — RLS DISABLED FOR COMPATIBILITY
+-- (Sessions from local dev don't carry to cloud; open insert access)
+-- ================================================================
+ALTER TABLE chat_channels DISABLE ROW LEVEL SECURITY;
+ALTER TABLE chat_channel_members DISABLE ROW LEVEL SECURITY;
+-- ================================================================
 -- VERIFICATION QUERIES
 -- Run these after applying the migration to confirm everything
 -- is set up correctly.
