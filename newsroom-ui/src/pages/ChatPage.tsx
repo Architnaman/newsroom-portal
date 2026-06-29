@@ -336,34 +336,66 @@ export default function ChatPage() {
   }
 
   // ── New DM ──
-  async function startDM(otherId: string) {
-    console.log('[startDM] called with otherId:', otherId, 'reporterId:', reporterId)
+ async function startDM(otherId: string) {
+  
+    if (!reporterId) {
+      alert('No reporterId — not logged in properly')
+      return
+    }
+    console.log('[startDM] START — otherId:', otherId, 'myId:', reporterId)
+    console.log('[startDM] current channels:', channels.length, channels.map(c => c.id))
+    console.log('[startDM] membersByChannel keys:', Object.keys(membersByChannel))
+
+    // Check existing DM
     for (const ch of channels) {
       if (ch.type === 'dm') {
         const members = membersByChannel[ch.id] || []
         const ids = members.map((m: any) => m.reporter_id)
+        console.log('[startDM] checking channel', ch.id, 'members:', ids)
         if (ids.includes(otherId) && ids.includes(reporterId)) {
-          console.log('[startDM] existing DM found, opening:', ch.id)
-          setActiveChannelId(ch.id); setShowMobileChat(true); return
+          console.log('[startDM] found existing DM:', ch.id)
+          setActiveChannelId(ch.id)
+          setShowMobileChat(true)
+          return
         }
       }
     }
-    console.log('[startDM] no existing DM, creating new channel')
-    const { data: newChannel, error: channelErr } = await supabase.from('chat_channels').insert({
-      type: 'dm', created_by: reporterId
-    }).select().single()
-    if (channelErr) console.error('[startDM] channel insert failed:', channelErr)
-    if (!newChannel) { console.warn('[startDM] no newChannel returned, aborting'); return }
-    console.log('[startDM] channel created:', newChannel.id)
-    const { error: memberErr } = await supabase.from('chat_channel_members').insert([
-      { channel_id: newChannel.id, reporter_id: reporterId },
-      { channel_id: newChannel.id, reporter_id: otherId },
-    ])
-    if (memberErr) console.error('[startDM] member insert failed:', memberErr)
+
+    console.log('[startDM] no existing DM found, creating...')
+
+    const { data: newChannel, error: channelErr } = await supabase
+      .from('chat_channels')
+      .insert({ type: 'dm', created_by: reporterId })
+      .select()
+      .single()
+
+    console.log('[startDM] channel insert result:', newChannel, 'error:', channelErr)
+
+    if (channelErr || !newChannel) {
+      alert('Failed to create DM channel: ' + (channelErr?.message || 'unknown'))
+      return
+    }
+
+    const { error: memberErr } = await supabase
+      .from('chat_channel_members')
+      .insert([
+        { channel_id: newChannel.id, reporter_id: reporterId },
+        { channel_id: newChannel.id, reporter_id: otherId },
+      ])
+
+    console.log('[startDM] member insert error:', memberErr)
+
+    if (memberErr) {
+      alert('Failed to add members: ' + memberErr.message)
+      return
+    }
+
     await loadChannels()
-    setActiveChannelId(newChannel.id)
-    setShowMobileChat(true)
-    console.log('[startDM] done, activeChannelId set to:', newChannel.id)
+    setTimeout(() => {
+      console.log('[startDM] setting activeChannelId to:', newChannel.id)
+      setActiveChannelId(newChannel.id)
+      setShowMobileChat(true)
+    }, 200)
   }
 
   // ── New Group ──

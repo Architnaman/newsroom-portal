@@ -6,6 +6,22 @@ import Navbar from '../components/Navbar'
 import { sendNotification } from '../lib/notifications'
 
 const GROQ_API_KEY = import.meta.env.VITE_GROQ_API_KEY
+const OPENAI_API_KEY = import.meta.env.VITE_OPENAI_API_KEY
+const AI_PROVIDER = import.meta.env.VITE_AI_PROVIDER || 'groq'
+
+const AI_API_URL = AI_PROVIDER === 'openai'
+  ? 'https://api.openai.com/v1/chat/completions'
+  : 'https://api.groq.com/openai/v1/chat/completions'
+
+const AI_API_KEY = AI_PROVIDER === 'openai' ? OPENAI_API_KEY : GROQ_API_KEY
+
+const AI_MODEL = AI_PROVIDER === 'openai' ? 'gpt-4.1-mini' : 'llama-3.3-70b-versatile'
+
+const WHISPER_API_URL = AI_PROVIDER === 'openai'
+  ? 'https://api.openai.com/v1/audio/transcriptions'
+  : 'https://api.groq.com/openai/v1/audio/transcriptions'
+
+const WHISPER_MODEL = AI_PROVIDER === 'openai' ? 'whisper-1' : 'whisper-large-v3'
 
 interface StoryReporterAssignment {
   storyId: string
@@ -62,7 +78,6 @@ export default function AIReportGenerator() {
   const [postOverrideLoading, setPostOverrideLoading] = useState(false)
   const [viewReportModal, setViewReportModal] = useState<any>(null)
 
-  // ── VOICE RECORDING STATES ───────────────────────────────────
   const [transcriptMode, setTranscriptMode] = useState<TranscriptMode>('manual')
   const [selectedAttendees, setSelectedAttendees] = useState<string[]>([])
   const [isRecording, setIsRecording] = useState(false)
@@ -108,14 +123,8 @@ export default function AIReportGenerator() {
   async function startRecording() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-  audio: {
-    echoCancellation: true,
-    noiseSuppression: true,
-    autoGainControl: true,
-    sampleRate: 44100,
-    channelCount: 1
-  }
-})
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, sampleRate: 44100, channelCount: 1 }
+      })
       const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' })
       mediaRecorderRef.current = mediaRecorder
       audioChunksRef.current = []
@@ -153,14 +162,14 @@ export default function AIReportGenerator() {
       const storyHeadlines = selectedStories.map(id => stories.find(s => s.id === id)?.headline).filter(Boolean).join(', ')
       const formData = new FormData()
       formData.append('file', audioBlob, 'recording.webm')
-      formData.append('model', 'whisper-large-v3')
+      formData.append('model', WHISPER_MODEL)
       formData.append('response_format', 'text')
-      formData.append('temperature', '0.2')
+      if (AI_PROVIDER === 'groq') formData.append('temperature', '0.2')
       formData.append('prompt', `This is a newsroom editorial meeting with multiple speakers from different regions. Attendees: ${attendeeNames}. Stories being discussed for assignment: ${storyHeadlines}. The conversation is about assigning reporters to news stories. Please transcribe accurately regardless of accent.`)
       formData.append('language', 'en')
-      const response = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+      const response = await fetch(WHISPER_API_URL, {
         method: 'POST',
-        headers: { 'Authorization': 'Bearer ' + GROQ_API_KEY },
+        headers: { 'Authorization': 'Bearer ' + AI_API_KEY },
         body: formData
       })
       if (!response.ok) {
@@ -180,11 +189,11 @@ export default function AIReportGenerator() {
     if (!voiceTranscript || !manualTranscript) return
     setTranscribing(true)
     try {
-      const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      const response = await fetch(AI_API_URL, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + GROQ_API_KEY },
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + AI_API_KEY },
         body: JSON.stringify({
-          model: 'llama-3.3-70b-versatile',
+          model: AI_MODEL,
           messages: [
             { role: 'system', content: `You are merging two transcripts of the same newsroom meeting. MANUAL transcript is the primary source. VOICE transcript fills gaps. Rules: Keep ALL content from manual, add missing context from voice, remove duplicates, return only clean merged transcript text.` },
             { role: 'user', content: `MANUAL TRANSCRIPT:\n${manualTranscript}\n\nVOICE TRANSCRIPT:\n${voiceTranscript}\n\nMerge these into one complete transcript.` }
@@ -234,22 +243,22 @@ export default function AIReportGenerator() {
       .sort((a, b) => b.score - a.score)
       .slice(0, 3)
   }
-async function extractReporterPerStory(storyHeadlines: string[]): Promise<Record<string, string>> {
-  const knownReporterNames = reporters.map(r => r.name).join(', ')
-  const attendeeNames = selectedAttendees.map(id => reporters.find(r => r.id === id)?.name).filter(Boolean).join(', ')
-  const activeTranscript = transcriptMode === 'voice' ? voiceTranscript : transcript
 
-  // ── LAYER 1: Full AI extraction with strong prompt ───────────
-  try {
-    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + GROQ_API_KEY },
-      body: JSON.stringify({
-        model: 'llama-3.3-70b-versatile',
-        messages: [
-          {
-            role: 'system',
-            content: `You are analyzing a newsroom editorial meeting transcript.
+  async function extractReporterPerStory(storyHeadlines: string[]): Promise<Record<string, string>> {
+    const knownReporterNames = reporters.map(r => r.name).join(', ')
+    const attendeeNames = selectedAttendees.map(id => reporters.find(r => r.id === id)?.name).filter(Boolean).join(', ')
+    const activeTranscript = transcriptMode === 'voice' ? voiceTranscript : transcript
+
+    try {
+      const response = await fetch(AI_API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + AI_API_KEY },
+        body: JSON.stringify({
+          model: AI_MODEL,
+          messages: [
+            {
+              role: 'system',
+              content: `You are analyzing a newsroom editorial meeting transcript.
 Your job: for each story headline, find the reporter being assigned to cover it.
 
 KNOWN REPORTERS IN SYSTEM: ${knownReporterNames}
@@ -264,124 +273,85 @@ Rules:
 
 Return ONLY a raw JSON object, no markdown, no explanation.
 Format: {"exact story headline": "Full Reporter Name"}`
-          },
-          {
-            role: 'user',
-            content: `Stories to find reporters for:\n${storyHeadlines.map((h, i) => `${i + 1}. "${h}"`).join('\n')}\n\nTRANSCRIPT:\n${activeTranscript}`
-          }
-        ],
-        temperature: 0,
-        max_tokens: 600
+            },
+            {
+              role: 'user',
+              content: `Stories to find reporters for:\n${storyHeadlines.map((h, i) => `${i + 1}. "${h}"`).join('\n')}\n\nTRANSCRIPT:\n${activeTranscript}`
+            }
+          ],
+          temperature: 0,
+          max_tokens: 600
+        })
       })
-    })
 
-    const data = await response.json()
-    const raw = data.choices?.[0]?.message?.content || '{}'
-    console.log('Layer 1 AI response:', raw)
+      const data = await response.json()
+      const raw = data.choices?.[0]?.message?.content || '{}'
+      const cleaned = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()
+      const parsed = JSON.parse(cleaned)
 
-    const cleaned = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()
-    const parsed = JSON.parse(cleaned)
+      const result: Record<string, string> = {}
+      for (const headline of storyHeadlines) {
+        let name = parsed[headline] || ''
+        if (!name) {
+          const matchedKey = Object.keys(parsed).find(k =>
+            k.toLowerCase().includes(headline.toLowerCase().slice(0, 20)) ||
+            headline.toLowerCase().includes(k.toLowerCase().slice(0, 20))
+          )
+          if (matchedKey) name = parsed[matchedKey]
+        }
+        if (name) {
+          const matched = reporters.find(r =>
+            r.name.toLowerCase() === name.toLowerCase() ||
+            r.name.toLowerCase().includes(name.toLowerCase()) ||
+            name.toLowerCase().includes(r.name.toLowerCase().split(' ')[0])
+          )
+          result[headline] = matched ? matched.name : name
+        } else {
+          result[headline] = ''
+        }
+      }
 
-    // Validate — ensure values match known reporters
-    const result: Record<string, string> = {}
+      const hasAnyResult = Object.values(result).some(v => v.trim().length > 0)
+      if (hasAnyResult) return result
+
+    } catch (e) {
+      console.warn('Layer 1 failed:', e)
+    }
+
+    // Layer 2: keyword proximity scan
+    const result2: Record<string, string> = {}
+    const attendeeReporters = selectedAttendees.map(id => reporters.find(r => r.id === id)).filter(Boolean) as any[]
+    const searchReporters = attendeeReporters.length > 0 ? attendeeReporters : reporters
+    const transcriptLower = activeTranscript.toLowerCase()
+
     for (const headline of storyHeadlines) {
-      let name = parsed[headline] || ''
-
-      // Try partial key match if exact key not found
-      if (!name) {
-        const matchedKey = Object.keys(parsed).find(k =>
-          k.toLowerCase().includes(headline.toLowerCase().slice(0, 20)) ||
-          headline.toLowerCase().includes(k.toLowerCase().slice(0, 20))
-        )
-        if (matchedKey) name = parsed[matchedKey]
+      const keywords = headline.toLowerCase().split(' ').filter(w => w.length > 3)
+      let bestReporter = ''
+      let bestScore = 0
+      for (const reporter of searchReporters) {
+        const firstName = reporter.name.split(' ')[0].toLowerCase()
+        let score = 0
+        const namePositions: number[] = []
+        let pos = transcriptLower.indexOf(firstName)
+        while (pos !== -1) { namePositions.push(pos); pos = transcriptLower.indexOf(firstName, pos + 1) }
+        for (const namePos of namePositions) {
+          const window = transcriptLower.substring(Math.max(0, namePos - 150), namePos + 150)
+          for (const keyword of keywords) { if (window.includes(keyword)) score += 2 }
+          const assignWords = ['assign', 'cover', 'handle', 'give', 'take', 'do it', 'will do', 'should']
+          for (const word of assignWords) { if (window.includes(word)) score += 1 }
+        }
+        if (score > bestScore) { bestScore = score; bestReporter = reporter.name }
       }
-
-      // Validate against known reporters — fix nicknames to full names
-      if (name) {
-        const matched = reporters.find(r =>
-          r.name.toLowerCase() === name.toLowerCase() ||
-          r.name.toLowerCase().includes(name.toLowerCase()) ||
-          name.toLowerCase().includes(r.name.toLowerCase().split(' ')[0])
-        )
-        result[headline] = matched ? matched.name : name
-      } else {
-        result[headline] = ''
-      }
+      result2[headline] = bestScore > 0 ? bestReporter : ''
     }
 
-    console.log('Layer 1 result:', result)
+    const hasLayer2Result = Object.values(result2).some(v => v.trim().length > 0)
+    if (hasLayer2Result) return result2
 
-    // If all empty, fall through to Layer 2
-    const hasAnyResult = Object.values(result).some(v => v.trim().length > 0)
-    if (hasAnyResult) return result
-
-  } catch (e) {
-    console.warn('Layer 1 failed:', e)
+    const result3: Record<string, string> = {}
+    for (const headline of storyHeadlines) result3[headline] = ''
+    return result3
   }
-
-  // ── LAYER 2: Keyword proximity scan ─────────────────────────
-  console.log('Trying Layer 2: keyword proximity scan')
-  const result2: Record<string, string> = {}
-  const attendeeReporters = selectedAttendees
-    .map(id => reporters.find(r => r.id === id))
-    .filter(Boolean) as any[]
-  const searchReporters = attendeeReporters.length > 0 ? attendeeReporters : reporters
-
-  const transcriptLower = activeTranscript.toLowerCase()
-
-  for (const headline of storyHeadlines) {
-    // Get key words from headline (skip short words)
-    const keywords = headline.toLowerCase().split(' ').filter(w => w.length > 3)
-    let bestReporter = ''
-    let bestScore = 0
-
-    for (const reporter of searchReporters) {
-      const firstName = reporter.name.split(' ')[0].toLowerCase()
-      const fullName = reporter.name.toLowerCase()
-      let score = 0
-
-      // Find positions where reporter name appears
-      const namePositions: number[] = []
-      let pos = transcriptLower.indexOf(firstName)
-      while (pos !== -1) {
-        namePositions.push(pos)
-        pos = transcriptLower.indexOf(firstName, pos + 1)
-      }
-
-      // For each name occurrence, check if a story keyword appears nearby (within 150 chars)
-      for (const namePos of namePositions) {
-        const window = transcriptLower.substring(Math.max(0, namePos - 150), namePos + 150)
-        for (const keyword of keywords) {
-          if (window.includes(keyword)) {
-            score += 2
-          }
-        }
-        // Bonus: assignment language nearby
-        const assignWords = ['assign', 'cover', 'handle', 'give', 'take', 'do it', 'will do', 'should']
-        for (const word of assignWords) {
-          if (window.includes(word)) score += 1
-        }
-      }
-
-      if (score > bestScore) {
-        bestScore = score
-        bestReporter = reporter.name
-      }
-    }
-
-    result2[headline] = bestScore > 0 ? bestReporter : ''
-    console.log(`Layer 2 - "${headline}": ${bestReporter} (score: ${bestScore})`)
-  }
-
-  const hasLayer2Result = Object.values(result2).some(v => v.trim().length > 0)
-  if (hasLayer2Result) return result2
-
-  // ── LAYER 3: Return empty — UI will show suggestions ────────
-  console.log('All layers failed — returning empty, UI will show suggestions')
-  const result3: Record<string, string> = {}
-  for (const headline of storyHeadlines) result3[headline] = ''
-  return result3
-}
 
   async function handleGenerate() {
     const activeTranscript = transcriptMode === 'voice' ? voiceTranscript : transcript
@@ -489,11 +459,11 @@ Generate EXACTLY this JSON:
 {"story_notes": "Comprehensive notes about ALL selected stories — cover each story headline, category, urgency, deadline, key facts from transcript.", "assignment_notes": "For each story, note the CONFIRMED assigned reporter, their beat suitability, workload, and assignment rationale. If override, note the reason.", "rostering_notes": "For each assigned reporter: availability days, capacity utilization, scheduling considerations. Flag any override assignments."}
 CRITICAL: Use ONLY confirmed reporter names. Return ONLY valid JSON. No markdown.`
 
-    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    const response = await fetch(AI_API_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + GROQ_API_KEY },
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + AI_API_KEY },
       body: JSON.stringify({
-        model: 'llama-3.3-70b-versatile',
+        model: AI_MODEL,
         messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: `Transcript:\n\n${transcript}` }],
         temperature: 0.2, max_tokens: 2000
       })
@@ -592,33 +562,11 @@ CRITICAL: Use ONLY confirmed reporter names. Return ONLY valid JSON. No markdown
         override_status: sa.isOverride ? 'pending' : null
       })
       await supabase.from('stories').update({ status: 'assigned' }).eq('id', sa.storyId)
-
       if (sa.finalReporter.email) {
         if (sa.isOverride) {
-          sendNotification({
-            recipient_email: sa.finalReporter.email,
-            subject: `Action Needed — Override Assignment: ${sa.storyHeadline}`,
-            body_lines: [
-              `You have been assigned <strong>"${sa.storyHeadline}"</strong> via Ambient Scribe, despite being unavailable.`,
-              `Reason given by editor: ${sa.overrideReason}`,
-              `Please log in and Accept or Reject this assignment from your dashboard.`,
-            ],
-            notification_type: 'override_assignment',
-            reporter_id: sa.finalReporter.id,
-            story_id: sa.storyId,
-          })
+          sendNotification({ recipient_email: sa.finalReporter.email, subject: `Action Needed — Override Assignment: ${sa.storyHeadline}`, body_lines: [`You have been assigned <strong>"${sa.storyHeadline}"</strong> via Ambient Scribe, despite being unavailable.`, `Reason given by editor: ${sa.overrideReason}`, `Please log in and Accept or Reject this assignment from your dashboard.`], notification_type: 'override_assignment', reporter_id: sa.finalReporter.id, story_id: sa.storyId })
         } else {
-          sendNotification({
-            recipient_email: sa.finalReporter.email,
-            subject: `New Story Assigned: ${sa.storyHeadline}`,
-            body_lines: [
-              `You have been assigned a new story via Ambient Scribe: <strong>"${sa.storyHeadline}"</strong>.`,
-              `Please check your dashboard for full details.`,
-            ],
-            notification_type: 'story_assigned',
-            reporter_id: sa.finalReporter.id,
-            story_id: sa.storyId,
-          })
+          sendNotification({ recipient_email: sa.finalReporter.email, subject: `New Story Assigned: ${sa.storyHeadline}`, body_lines: [`You have been assigned a new story via Ambient Scribe: <strong>"${sa.storyHeadline}"</strong>.`, `Please check your dashboard for full details.`], notification_type: 'story_assigned', reporter_id: sa.finalReporter.id, story_id: sa.storyId })
         }
       }
     }
@@ -626,77 +574,30 @@ CRITICAL: Use ONLY confirmed reporter names. Return ONLY valid JSON. No markdown
     window.dispatchEvent(new Event('newsroom-refresh')); loadData(); setApproving(false)
   }
 
-  // ── APPROVE FROM SAVED REPORTS ───────────────────────────────
   async function approveFromSaved(savedReport: any) {
     if (!window.confirm('Approve this report and assign all stories to the confirmed reporters?')) return
-
     const validation: StoryReporterAssignment[] = savedReport.reporter_validation || []
-    if (validation.length === 0) {
-      alert('No reporter assignments found in this report. Please regenerate it.')
-      return
-    }
-
+    if (validation.length === 0) { alert('No reporter assignments found in this report. Please regenerate it.'); return }
     const confirmedAssignments = validation.filter((sa: any) => sa.finalReporter)
-    if (confirmedAssignments.length === 0) {
-      alert('No confirmed reporters found. Please regenerate and confirm reporters first.')
-      return
-    }
-
+    if (confirmedAssignments.length === 0) { alert('No confirmed reporters found. Please regenerate and confirm reporters first.'); return }
     try {
-      await supabase.from('ai_reports').update({
-        status: 'approved',
-        approved_at: new Date().toISOString()
-      }).eq('id', savedReport.id)
-
+      await supabase.from('ai_reports').update({ status: 'approved', approved_at: new Date().toISOString() }).eq('id', savedReport.id)
       for (const sa of confirmedAssignments) {
         if (!sa.finalReporter) continue
         await supabase.from('assignments').update({ is_active: false }).eq('story_id', sa.storyId).eq('is_active', true)
-        await supabase.from('assignments').insert({
-          story_id: sa.storyId,
-          reporter_id: sa.finalReporter.id,
-          is_active: true,
-          is_override: sa.isOverride || false,
-          override_reason: sa.isOverride ? sa.overrideReason : null,
-          override_status: sa.isOverride ? 'pending' : null
-        })
+        await supabase.from('assignments').insert({ story_id: sa.storyId, reporter_id: sa.finalReporter.id, is_active: true, is_override: sa.isOverride || false, override_reason: sa.isOverride ? sa.overrideReason : null, override_status: sa.isOverride ? 'pending' : null })
         await supabase.from('stories').update({ status: 'assigned' }).eq('id', sa.storyId)
-
         if (sa.finalReporter.email) {
           if (sa.isOverride) {
-            sendNotification({
-              recipient_email: sa.finalReporter.email,
-              subject: `Action Needed — Override Assignment: ${sa.storyHeadline}`,
-              body_lines: [
-                `You have been assigned <strong>"${sa.storyHeadline}"</strong> via Ambient Scribe, despite being unavailable.`,
-                `Reason given by editor: ${sa.overrideReason}`,
-                `Please log in and Accept or Reject this assignment from your dashboard.`,
-              ],
-              notification_type: 'override_assignment',
-              reporter_id: sa.finalReporter.id,
-              story_id: sa.storyId,
-            })
+            sendNotification({ recipient_email: sa.finalReporter.email, subject: `Action Needed — Override Assignment: ${sa.storyHeadline}`, body_lines: [`You have been assigned <strong>"${sa.storyHeadline}"</strong> via Ambient Scribe, despite being unavailable.`, `Reason given by editor: ${sa.overrideReason}`, `Please log in and Accept or Reject this assignment from your dashboard.`], notification_type: 'override_assignment', reporter_id: sa.finalReporter.id, story_id: sa.storyId })
           } else {
-            sendNotification({
-              recipient_email: sa.finalReporter.email,
-              subject: `New Story Assigned: ${sa.storyHeadline}`,
-              body_lines: [
-                `You have been assigned a new story via Ambient Scribe: <strong>"${sa.storyHeadline}"</strong>.`,
-                `Please check your dashboard for full details.`,
-              ],
-              notification_type: 'story_assigned',
-              reporter_id: sa.finalReporter.id,
-              story_id: sa.storyId,
-            })
+            sendNotification({ recipient_email: sa.finalReporter.email, subject: `New Story Assigned: ${sa.storyHeadline}`, body_lines: [`You have been assigned a new story via Ambient Scribe: <strong>"${sa.storyHeadline}"</strong>.`, `Please check your dashboard for full details.`], notification_type: 'story_assigned', reporter_id: sa.finalReporter.id, story_id: sa.storyId })
           }
         }
       }
-
-      window.dispatchEvent(new Event('newsroom-refresh'))
-      loadData()
+      window.dispatchEvent(new Event('newsroom-refresh')); loadData()
       alert(`✅ Report approved! ${confirmedAssignments.length} stor${confirmedAssignments.length > 1 ? 'ies' : 'y'} assigned successfully.`)
-    } catch (err: any) {
-      alert('Error approving report: ' + err.message)
-    }
+    } catch (err: any) { alert('Error approving report: ' + err.message) }
   }
 
   async function runScoringEngine(storyId: string) {
@@ -720,24 +621,11 @@ CRITICAL: Use ONLY confirmed reporter names. Return ONLY valid JSON. No markdown
     await supabase.from('assignments').update({ is_active: false }).eq('story_id', assignStoryId).eq('is_active', true)
     await supabase.from('assignments').insert({ story_id: assignStoryId, reporter_id: reporterId, is_active: true, is_override: false })
     await supabase.from('stories').update({ status: 'assigned' }).eq('id', assignStoryId)
-
     const story = stories.find(s => s.id === assignStoryId)
     const reporter = reporters.find(r => r.id === reporterId)
     if (story && reporter?.email) {
-      sendNotification({
-        recipient_email: reporter.email,
-        subject: `New Story Assigned: ${story.headline}`,
-        body_lines: [
-          `You have been assigned a new story: <strong>"${story.headline}"</strong>.`,
-          `Deadline: ${story.deadline}`,
-          `Please check your dashboard for full details.`,
-        ],
-        notification_type: 'story_assigned',
-        reporter_id: reporterId,
-        story_id: assignStoryId,
-      })
+      sendNotification({ recipient_email: reporter.email, subject: `New Story Assigned: ${story.headline}`, body_lines: [`You have been assigned a new story: <strong>"${story.headline}"</strong>.`, `Deadline: ${story.deadline}`, `Please check your dashboard for full details.`], notification_type: 'story_assigned', reporter_id: reporterId, story_id: assignStoryId })
     }
-
     setAssigningReporter(null); setShowScoreModal(false)
     window.dispatchEvent(new Event('newsroom-refresh')); loadData()
   }
@@ -748,23 +636,10 @@ CRITICAL: Use ONLY confirmed reporter names. Return ONLY valid JSON. No markdown
     await supabase.from('assignments').update({ is_active: false }).eq('story_id', assignStoryId).eq('is_active', true)
     await supabase.from('assignments').insert({ story_id: assignStoryId, reporter_id: postOverrideModal.id, is_active: true, is_override: true, override_reason: postOverrideReason, override_status: 'pending' })
     await supabase.from('stories').update({ status: 'assigned' }).eq('id', assignStoryId)
-
     const story = stories.find(s => s.id === assignStoryId)
     if (story && postOverrideModal.email) {
-      sendNotification({
-        recipient_email: postOverrideModal.email,
-        subject: `Action Needed — Override Assignment: ${story.headline}`,
-        body_lines: [
-          `You have been assigned <strong>"${story.headline}"</strong> despite being unavailable.`,
-          `Reason given by editor: ${postOverrideReason.trim()}`,
-          `Please log in and Accept or Reject this assignment from your dashboard.`,
-        ],
-        notification_type: 'override_assignment',
-        reporter_id: postOverrideModal.id,
-        story_id: assignStoryId,
-      })
+      sendNotification({ recipient_email: postOverrideModal.email, subject: `Action Needed — Override Assignment: ${story.headline}`, body_lines: [`You have been assigned <strong>"${story.headline}"</strong> despite being unavailable.`, `Reason given by editor: ${postOverrideReason.trim()}`, `Please log in and Accept or Reject this assignment from your dashboard.`], notification_type: 'override_assignment', reporter_id: postOverrideModal.id, story_id: assignStoryId })
     }
-
     setPostOverrideLoading(false); setPostOverrideModal(null); setPostOverrideReason('')
     setShowScoreModal(false); setShowOverrideList(false)
     window.dispatchEvent(new Event('newsroom-refresh')); loadData()
@@ -795,6 +670,7 @@ CRITICAL: Use ONLY confirmed reporter names. Return ONLY valid JSON. No markdown
         <div style={{ marginBottom: '28px' }}>
           <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '6px 14px', background: t.accentBg, border: `1px solid ${t.accentBorder}`, borderRadius: '6px', marginBottom: '10px' }}>
             <span style={{ color: t.accent, fontSize: '11px', fontWeight: '700', letterSpacing: '1px' }}>AMBIENT SCRIBE</span>
+            <span style={{ color: t.textMuted, fontSize: '10px' }}>· {AI_PROVIDER === 'openai' ? 'GPT-4.1 Mini + Whisper-1' : 'LLaMA 3.3 + Whisper Large'}</span>
           </div>
           <h1 style={{ color: t.textPrimary, margin: '0 0 6px', fontSize: '24px', fontWeight: '700' }}>Ambient Scribe</h1>
           <p style={{ color: t.textMuted, margin: 0, fontSize: '13px' }}>Select stories → choose attendees → record or type transcript → AI validates reporters → generate report</p>
@@ -884,7 +760,7 @@ CRITICAL: Use ONLY confirmed reporter names. Return ONLY valid JSON. No markdown
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', marginBottom: '24px' }}>
                     {[
                       { key: 'both', icon: '🎙️✍️', label: 'Voice + Manual', desc: 'Record meeting AND type transcript — AI merges both for best accuracy' },
-                      { key: 'voice', icon: '🎙️', label: 'Voice Only', desc: 'Record the meeting and let Groq Whisper transcribe automatically' },
+                      { key: 'voice', icon: '🎙️', label: 'Voice Only', desc: `Record the meeting and let ${AI_PROVIDER === 'openai' ? 'OpenAI Whisper' : 'Groq Whisper'} transcribe automatically` },
                       { key: 'manual', icon: '✍️', label: 'Manual Only', desc: 'Type or paste your own transcript' },
                     ].map(mode => (
                       <div key={mode.key} onClick={() => setTranscriptMode(mode.key as TranscriptMode)}
@@ -899,7 +775,9 @@ CRITICAL: Use ONLY confirmed reporter names. Return ONLY valid JSON. No markdown
                   {/* VOICE RECORDING */}
                   {(transcriptMode === 'voice' || transcriptMode === 'both') && (
                     <div style={{ padding: '20px', borderRadius: '10px', border: `1px solid ${t.accentBorder}`, background: t.accentBg, marginBottom: '16px' }}>
-                      <p style={{ color: t.accent, fontSize: '12px', fontWeight: '700', margin: '0 0 14px', letterSpacing: '0.5px' }}>🎙️ VOICE RECORDING — Groq Whisper</p>
+                      <p style={{ color: t.accent, fontSize: '12px', fontWeight: '700', margin: '0 0 14px', letterSpacing: '0.5px' }}>
+                        🎙️ VOICE RECORDING — {AI_PROVIDER === 'openai' ? 'OpenAI Whisper-1' : 'Groq Whisper Large'}
+                      </p>
                       {!isRecording && !recordingDone && (
                         <button onClick={startRecording}
                           style={{ padding: '14px 32px', background: t.danger, border: 'none', borderRadius: '8px', color: '#fff', fontSize: '14px', fontWeight: '700', cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -925,7 +803,7 @@ CRITICAL: Use ONLY confirmed reporter names. Return ONLY valid JSON. No markdown
                       {transcribing && (
                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '12px 16px', background: t.bgCard, borderRadius: '8px', border: `1px solid ${t.borderCard}` }}>
                           <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: t.accent, animation: 'pulse 1s infinite' }} />
-                          <span style={{ color: t.textMuted, fontSize: '13px' }}>Groq Whisper is transcribing your recording...</span>
+                          <span style={{ color: t.textMuted, fontSize: '13px' }}>{AI_PROVIDER === 'openai' ? 'OpenAI Whisper' : 'Groq Whisper'} is transcribing your recording...</span>
                         </div>
                       )}
                       {voiceTranscript && !transcribing && (
@@ -1000,12 +878,8 @@ CRITICAL: Use ONLY confirmed reporter names. Return ONLY valid JSON. No markdown
                     </div>
                   )}
 
-                  {/* GENERATE BUTTON */}
                   <button
-                    onClick={() => {
-                      if (transcriptMode === 'voice') setTranscript(voiceTranscript)
-                      handleGenerate()
-                    }}
+                    onClick={() => { if (transcriptMode === 'voice') setTranscript(voiceTranscript); handleGenerate() }}
                     disabled={generating || !canProceed() || selectedStories.length === 0 || selectedAttendees.length === 0 || (transcriptMode === 'both' && !transcript)}
                     style={{ marginTop: '16px', padding: '14px 32px', background: generating || !canProceed() || selectedStories.length === 0 || selectedAttendees.length === 0 || (transcriptMode === 'both' && !transcript) ? t.textMuted : t.accent, border: 'none', borderRadius: '8px', color: t.accentText, fontSize: '14px', fontWeight: '700', cursor: 'pointer', fontFamily: 'inherit', opacity: generating ? 0.7 : 1 }}>
                     {generating ? '🔍 Extracting & Validating Reporters...' : '⚡ GENERATE REPORT'}
@@ -1462,7 +1336,7 @@ CRITICAL: Use ONLY confirmed reporter names. Return ONLY valid JSON. No markdown
             <textarea value={postOverrideReason} onChange={e => setPostOverrideReason(e.target.value)} rows={3}
               placeholder="e.g. Urgent breaking news, best beat match despite unavailability..."
               style={{ ...inputStyle, resize: 'none' as const, marginBottom: '16px' }} />
-            <div style={{ display: 'flex', gap: '8px' }}>
+            <div style={{ display: 'flex',gap: '8px' }}>
               <button onClick={() => { setPostOverrideModal(null); setPostOverrideReason('') }}
                 style={{ flex: 1, padding: '12px', background: 'transparent', border: `1px solid ${t.borderCard}`, borderRadius: '8px', color: t.textMuted, fontSize: '13px', cursor: 'pointer', fontFamily: 'inherit' }}>CANCEL</button>
               <button onClick={postOverrideAssign} disabled={!postOverrideReason.trim() || postOverrideLoading}
